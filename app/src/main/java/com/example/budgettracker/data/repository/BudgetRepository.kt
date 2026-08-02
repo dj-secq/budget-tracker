@@ -145,6 +145,13 @@ class BudgetRepository(
         return transactionDao.insertTransaction(transaction)
     }
 
+    suspend fun insertTransfer(expenseTransaction: Transaction, incomeTransaction: Transaction) {
+        database.withTransaction {
+            insertTransaction(expenseTransaction)
+            insertTransaction(incomeTransaction)
+        }
+    }
+
     suspend fun deleteTransaction(transaction: Transaction) {
         val category = categoryDao.getCategoryById(transaction.categoryId)
         val account = accountDao.getAccountById(transaction.accountId)

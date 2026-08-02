@@ -149,6 +149,54 @@ class AddTransactionViewModel(
         }
     }
 
+    fun saveTransfer(
+        fromAccountId: Long,
+        toAccountId: Long,
+        amount: Double,
+        note: String,
+        timestamp: Long = System.currentTimeMillis(),
+        onComplete: () -> Unit
+    ) {
+        viewModelScope.launch {
+            isSaving.value = true
+            
+            val allCategories = repository.getAllCategories().first()
+            var transferOutCat = allCategories.find { it.name == "Withdraw / Transfer Out" && it.type == CategoryType.EXPENSE }
+            if (transferOutCat == null) {
+                val id = repository.insertCategory(Category(name = "Withdraw / Transfer Out", type = CategoryType.EXPENSE, colorArgb = 0xFFF44336.toInt()))
+                transferOutCat = Category(id = id, name = "Withdraw / Transfer Out", type = CategoryType.EXPENSE, colorArgb = 0xFFF44336.toInt())
+            }
+            
+            var transferInCat = allCategories.find { it.name == "Deposit / Transfer In" && it.type == CategoryType.INCOME }
+            if (transferInCat == null) {
+                val id = repository.insertCategory(Category(name = "Deposit / Transfer In", type = CategoryType.INCOME, colorArgb = 0xFF4CAF50.toInt()))
+                transferInCat = Category(id = id, name = "Deposit / Transfer In", type = CategoryType.INCOME, colorArgb = 0xFF4CAF50.toInt())
+            }
+            
+            val txOut = Transaction(
+                accountId = fromAccountId,
+                categoryId = transferOutCat.id,
+                amount = amount,
+                note = if (note.isBlank()) "Transfer to another wallet" else note,
+                timestamp = timestamp,
+                classification = ExpenseClassification.NONE
+            )
+            
+            val txIn = Transaction(
+                accountId = toAccountId,
+                categoryId = transferInCat.id,
+                amount = amount,
+                note = if (note.isBlank()) "Transfer from another wallet" else note,
+                timestamp = timestamp,
+                classification = ExpenseClassification.NONE
+            )
+            
+            repository.insertTransfer(txOut, txIn)
+            isSaving.value = false
+            onComplete()
+        }
+    }
+
     fun dismissWarnings() {
         showOverBudgetWarning.value = null
         showBucketWarning.value = null

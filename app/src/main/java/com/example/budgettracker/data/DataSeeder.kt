@@ -57,14 +57,16 @@ suspend fun seedDatabaseIfEmpty(repository: BudgetRepository) {
         Category(name = "Food", type = CategoryType.EXPENSE, colorArgb = CategoryColors[21 % CategoryColors.size].value.toInt()),
         Category(name = "Lost", type = CategoryType.EXPENSE, colorArgb = CategoryColors[22 % CategoryColors.size].value.toInt()),
         Category(name = "Rent Income", type = CategoryType.INCOME, colorArgb = CategoryColors[23 % CategoryColors.size].value.toInt()),
-        Category(name = "Bonus", type = CategoryType.INCOME, colorArgb = CategoryColors[24 % CategoryColors.size].value.toInt())
+        Category(name = "Bonus", type = CategoryType.INCOME, colorArgb = CategoryColors[24 % CategoryColors.size].value.toInt()),
+        Category(name = "Withdraw / Transfer Out", type = CategoryType.EXPENSE, colorArgb = CategoryColors[25 % CategoryColors.size].value.toInt()),
+        Category(name = "Deposit / Transfer In", type = CategoryType.INCOME, colorArgb = CategoryColors[26 % CategoryColors.size].value.toInt())
     )
 
     val calendar = Calendar.getInstance()
     val currentMonth = calendar.get(Calendar.MONTH) + 1
     val currentYear = calendar.get(Calendar.YEAR)
 
-    val limits = listOf(400.0, 1200.0, 150.0, 100.0, 200.0, 0.0, 150.0, 100.0, 200.0, 500.0, 100.0, 300.0, 50.0, 50.0, 100.0, 30.0, 100.0, 500.0, 200.0, 0.0, 0.0, 200.0, 50.0, 0.0, 0.0)
+    val limits = listOf(400.0, 1200.0, 150.0, 100.0, 200.0, 0.0, 150.0, 100.0, 200.0, 500.0, 100.0, 300.0, 50.0, 50.0, 100.0, 30.0, 100.0, 500.0, 200.0, 0.0, 0.0, 200.0, 50.0, 0.0, 0.0, 0.0, 0.0)
 
     defaultCategories.forEachIndexed { index, category ->
         val existing = existingCategories.find { it.name == category.name && it.type == category.type }

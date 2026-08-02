@@ -57,6 +57,9 @@ fun AddTransactionScreen(
     var transactionType by remember { mutableStateOf(CategoryType.EXPENSE) }
     var selectedClassification by remember { mutableStateOf(ExpenseClassification.NONE) }
     
+    var isTransfer by remember { mutableStateOf(false) }
+    var transferToAccountId by remember { mutableStateOf<Long?>(null) }
+    
     var isRecurring by remember { mutableStateOf(false) }
     var recurringFrequency by remember { mutableStateOf(Frequency.MONTHLY) }
     
@@ -151,46 +154,97 @@ fun AddTransactionScreen(
 
             // Transaction Type Toggle
             TabRow(
-                selectedTabIndex = if (transactionType == CategoryType.EXPENSE) 0 else 1,
+                selectedTabIndex = if (isTransfer) 2 else if (transactionType == CategoryType.EXPENSE) 0 else 1,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Tab(
-                    selected = transactionType == CategoryType.EXPENSE,
-                    onClick = { transactionType = CategoryType.EXPENSE; selectedCategoryId = null },
+                    selected = !isTransfer && transactionType == CategoryType.EXPENSE,
+                    onClick = { isTransfer = false; transactionType = CategoryType.EXPENSE; selectedCategoryId = null },
                     text = { Text("Expense", fontWeight = FontWeight.Bold) }
                 )
                 Tab(
-                    selected = transactionType == CategoryType.INCOME,
-                    onClick = { transactionType = CategoryType.INCOME; selectedCategoryId = null },
+                    selected = !isTransfer && transactionType == CategoryType.INCOME,
+                    onClick = { isTransfer = false; transactionType = CategoryType.INCOME; selectedCategoryId = null },
                     text = { Text("Income", fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = isTransfer,
+                    onClick = { isTransfer = true; selectedCategoryId = null },
+                    text = { Text("Transfer", fontWeight = FontWeight.Bold) }
                 )
             }
 
             // Account Selection
-            Text(stringResource(R.string.account_label), fontWeight = FontWeight.Bold)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(accounts) { account ->
-                    val isSelected = selectedAccountId == account.id
-                    val color = Color(account.colorArgb)
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = if (isSelected) color else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(16.dp)
+            if (!isTransfer) {
+                Text(stringResource(R.string.account_label), fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(accounts) { account ->
+                        val isSelected = selectedAccountId == account.id
+                        val color = Color(account.colorArgb)
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSelected) color else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { selectedAccountId = account.id }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = account.name,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            .clickable { selectedAccountId = account.id }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = account.name,
-                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        }
+                    }
+                }
+            } else {
+                Text("From Account", fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(accounts) { account ->
+                        val isSelected = selectedAccountId == account.id
+                        val color = Color(account.colorArgb)
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSelected) color else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { selectedAccountId = account.id }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = account.name,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Text("To Account", fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(accounts) { account ->
+                        val isSelected = transferToAccountId == account.id
+                        val color = Color(account.colorArgb)
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSelected) color else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { transferToAccountId = account.id }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = account.name,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
 
             // Category Selection
-            Text(stringResource(R.string.category_label), fontWeight = FontWeight.Bold)
+            if (!isTransfer) {
+                Text(stringResource(R.string.category_label), fontWeight = FontWeight.Bold)
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val chunkedCategories = filteredCategories.chunked(3)
                 chunkedCategories.forEach { rowCategories ->
@@ -240,9 +294,10 @@ fun AddTransactionScreen(
                     }
                 }
             }
+            } // Close if (!isTransfer)
 
             // Classification Selection (Only for Expenses)
-            if (transactionType == CategoryType.EXPENSE) {
+            if (!isTransfer && transactionType == CategoryType.EXPENSE) {
                 Text("Classification", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val classifications = listOf(
@@ -315,14 +370,15 @@ fun AddTransactionScreen(
             )
             
             // Recurring Transaction Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(stringResource(R.string.repeat_transaction), fontWeight = FontWeight.Bold)
-                Switch(checked = isRecurring, onCheckedChange = { isRecurring = it })
-            }
+            if (!isTransfer) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(stringResource(R.string.repeat_transaction), fontWeight = FontWeight.Bold)
+                    Switch(checked = isRecurring, onCheckedChange = { isRecurring = it })
+                }
             
             if (isRecurring) {
                 Text("Frequency", fontWeight = FontWeight.Bold)
@@ -336,6 +392,7 @@ fun AddTransactionScreen(
                     }
                 }
             }
+            } // Close if (!isTransfer)
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -343,39 +400,60 @@ fun AddTransactionScreen(
             Button(
                 onClick = {
                     val parsedAmount = amount.toDoubleOrNull()
-                    if (parsedAmount != null && selectedCategoryId != null && selectedAccountId != null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (transactionType == CategoryType.EXPENSE) {
-                            viewModel.onConfirmSave(
-                                selectedAccountId!!,
-                                selectedCategoryId!!,
-                                parsedAmount,
-                                note,
-                                selectedDateMillis,
-                                selectedClassification,
-                                isRecurring,
-                                if (isRecurring) recurringFrequency else null
+                    if (isTransfer) {
+                        if (parsedAmount != null && selectedAccountId != null && transferToAccountId != null && selectedAccountId != transferToAccountId) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.saveTransfer(
+                                fromAccountId = selectedAccountId!!,
+                                toAccountId = transferToAccountId!!,
+                                amount = parsedAmount,
+                                note = note,
+                                timestamp = selectedDateMillis
                             ) {
                                 onNavigateBack()
                             }
-                        } else {
-                            viewModel.saveTransaction(
-                                selectedAccountId!!,
-                                selectedCategoryId!!,
-                                parsedAmount,
-                                note,
-                                selectedDateMillis,
-                                ExpenseClassification.NONE,
-                                isRecurring,
-                                if (isRecurring) recurringFrequency else null
-                            ) {
-                                onNavigateBack()
+                        } else if (selectedAccountId == transferToAccountId && selectedAccountId != null) {
+                            Toast.makeText(context, "Cannot transfer to the same account", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        if (parsedAmount != null && selectedCategoryId != null && selectedAccountId != null) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (transactionType == CategoryType.EXPENSE) {
+                                viewModel.onConfirmSave(
+                                    selectedAccountId!!,
+                                    selectedCategoryId!!,
+                                    parsedAmount,
+                                    note,
+                                    selectedDateMillis,
+                                    selectedClassification,
+                                    isRecurring,
+                                    if (isRecurring) recurringFrequency else null
+                                ) {
+                                    onNavigateBack()
+                                }
+                            } else {
+                                viewModel.saveTransaction(
+                                    selectedAccountId!!,
+                                    selectedCategoryId!!,
+                                    parsedAmount,
+                                    note,
+                                    selectedDateMillis,
+                                    ExpenseClassification.NONE,
+                                    isRecurring,
+                                    if (isRecurring) recurringFrequency else null
+                                ) {
+                                    onNavigateBack()
+                                }
                             }
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = amount.isNotEmpty() && selectedCategoryId != null && selectedAccountId != null && !isSaving,
+                enabled = if (isTransfer) {
+                    amount.isNotEmpty() && selectedAccountId != null && transferToAccountId != null && selectedAccountId != transferToAccountId && !isSaving
+                } else {
+                    amount.isNotEmpty() && selectedCategoryId != null && selectedAccountId != null && !isSaving
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text(stringResource(R.string.save_transaction), fontSize = 18.sp, color = Color.Black)
