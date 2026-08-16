@@ -70,6 +70,10 @@ fun AddTransactionScreen(
     val accounts by viewModel.accounts.collectAsState()
     var selectedAccountId by remember { mutableStateOf<Long?>(null) }
     
+    val templates by viewModel.templates.collectAsState()
+    var showTemplateDialog by remember { mutableStateOf(false) }
+    var newTemplateName by remember { mutableStateOf("") }
+    
     val overBudgetWarning by viewModel.showOverBudgetWarning.collectAsState()
     val bucketWarning by viewModel.showBucketWarning.collectAsState()
     
@@ -128,6 +132,31 @@ fun AddTransactionScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            // Quick Add Templates
+            if (templates.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("Quick Add Templates", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(templates) { template ->
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    amount = template.amount.toString()
+                                    selectedAccountId = template.accountId
+                                    selectedCategoryId = template.categoryId
+                                    transactionType = template.transactionType
+                                    isTransfer = false
+                                    note = template.note
+                                    selectedClassification = template.classification
+                                },
+                                label = { Text(template.templateName) }
+                            )
+                        }
+                    }
+                }
+            }
+
             // Amount Input
             OutlinedTextField(
                 value = amount,
@@ -396,9 +425,18 @@ fun AddTransactionScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Save Button
-            Button(
-                onClick = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(
+                    onClick = { showTemplateDialog = true },
+                    modifier = Modifier.weight(1f),
+                    enabled = !isTransfer && amount.isNotBlank() && selectedAccountId != null && selectedCategoryId != null
+                ) {
+                    Text("Save Template")
+                }
+
+                // Save Button
+                Button(
+                    onClick = {
                     val parsedAmount = amount.toDoubleOrNull()
                     if (isTransfer) {
                         if (parsedAmount != null && selectedAccountId != null && transferToAccountId != null && selectedAccountId != transferToAccountId) {
@@ -448,7 +486,7 @@ fun AddTransactionScreen(
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
                 enabled = if (isTransfer) {
                     amount.isNotEmpty() && selectedAccountId != null && transferToAccountId != null && selectedAccountId != transferToAccountId && !isSaving
                 } else {
@@ -458,6 +496,7 @@ fun AddTransactionScreen(
             ) {
                 Text(stringResource(R.string.save_transaction), fontSize = 18.sp, color = Color.Black)
             }
+            } // Close Row
         }
     }
 
@@ -516,6 +555,49 @@ fun AddTransactionScreen(
                     }
                 }
             } else null
+        )
+    }
+
+    // Template Name Dialog
+    if (showTemplateDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTemplateDialog = false },
+            title = { Text("Save as Template") },
+            text = {
+                OutlinedTextField(
+                    value = newTemplateName,
+                    onValueChange = { newTemplateName = it },
+                    label = { Text("Template Name (e.g., Morning Coffee)") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val parsedAmount = amount.toDoubleOrNull() ?: 0.0
+                        viewModel.saveTemplate(
+                            templateName = newTemplateName,
+                            amount = parsedAmount,
+                            categoryId = selectedCategoryId!!,
+                            accountId = selectedAccountId!!,
+                            note = note,
+                            transactionType = transactionType,
+                            classification = selectedClassification
+                        )
+                        showTemplateDialog = false
+                        newTemplateName = ""
+                        Toast.makeText(context, "Template Saved!", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = newTemplateName.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showTemplateDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 

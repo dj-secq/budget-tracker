@@ -46,4 +46,10 @@ class WalletManagementViewModel(
             repository.deleteAccount(account)
         }
     }
+
+    fun updateWalletName(account: Account, newName: String) {
+        viewModelScope.launch {
+            repository.updateAccount(account.copy(name = newName))
+        }
+    }
 }

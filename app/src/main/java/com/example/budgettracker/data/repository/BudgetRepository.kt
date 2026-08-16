@@ -18,6 +18,8 @@ import com.example.budgettracker.data.local.entity.SavingsGoal
 import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.local.entity.Debt
 import com.example.budgettracker.data.local.dao.DebtDao
+import com.example.budgettracker.data.local.entity.TransactionTemplate
+import com.example.budgettracker.data.local.dao.TransactionTemplateDao
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.util.Calendar
@@ -30,7 +32,8 @@ class BudgetRepository(
     private val transactionDao: TransactionDao,
     private val savingsGoalDao: SavingsGoalDao,
     private val recurringTransactionDao: RecurringTransactionDao,
-    private val debtDao: DebtDao
+    private val debtDao: DebtDao,
+    private val transactionTemplateDao: TransactionTemplateDao
 ) {
     // Accounts
     fun getAllAccounts(): Flow<List<Account>> = accountDao.getAllAccounts()
@@ -38,6 +41,11 @@ class BudgetRepository(
     suspend fun insertAccount(account: Account): Long = accountDao.insertAccount(account)
     suspend fun updateAccount(account: Account) = accountDao.updateAccount(account)
     suspend fun deleteAccount(account: Account) = accountDao.deleteAccount(account)
+
+    // Transaction Templates
+    fun getAllTemplates(): Flow<List<TransactionTemplate>> = transactionTemplateDao.getAllTemplates()
+    suspend fun insertTemplate(template: TransactionTemplate): Long = transactionTemplateDao.insertTemplate(template)
+    suspend fun deleteTemplate(template: TransactionTemplate) = transactionTemplateDao.deleteTemplate(template)
 
     // Categories
     fun getAllCategories(): Flow<List<Category>> = categoryDao.getAllCategories()

@@ -115,8 +115,20 @@ class HomeViewModel(
             
             // Calculate current streak (look backwards from today)
             val todayCal = Calendar.getInstance()
+            val oldestExpenseDay = if (expenseDaysLocal.isNotEmpty()) {
+                expenseDaysLocal.minOrNull() ?: 0
+            } else {
+                val cal = Calendar.getInstance().apply { timeInMillis = firstTxTime }
+                cal.get(Calendar.YEAR) * 10000 + cal.get(Calendar.MONTH) * 100 + cal.get(Calendar.DAY_OF_MONTH)
+            }
+            
             while (true) {
                 val d = todayCal.get(Calendar.YEAR) * 10000 + todayCal.get(Calendar.MONTH) * 100 + todayCal.get(Calendar.DAY_OF_MONTH)
+                if (d < oldestExpenseDay) {
+                    // We've gone past the first recorded transaction date
+                    break
+                }
+                
                 if (!expenseDaysLocal.contains(d)) {
                     currentStreak++
                     todayCal.add(Calendar.DAY_OF_YEAR, -1)

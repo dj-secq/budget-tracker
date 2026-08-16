@@ -65,10 +65,28 @@ import com.example.budgettracker.ui.edit.EditTransactionScreen
 import com.example.budgettracker.ui.edit.EditTransactionViewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+
 class MainActivity : ComponentActivity() {
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        // Permission result handled
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         
         val appContainer = (application as BudgetTrackerApplication).container
         
@@ -135,7 +153,8 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
     
 
     val routeOrder = listOf("home", "transactions", "analytics", "goals")
-    fun getRouteIndex(route: String?) = routeOrder.indexOf(route).let { if (it == -1) 0 else it }
+    fun isMainTab(route: String?) = routeOrder.contains(route?.substringBefore("/"))
+    fun getRouteIndex(route: String?) = routeOrder.indexOf(route?.substringBefore("/")).let { if (it == -1) 0 else it }
 
     Scaffold(
         bottomBar = {
@@ -149,10 +168,16 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                     label = { Text(stringResource(R.string.tab_home)) },
                     selected = currentDestination?.hierarchy?.any { it.route == "home" } == true,
                     onClick = {
-                        navController.navigate("home") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                        if (currentDestination?.route != "home") {
+                            if (!isMainTab(currentDestination?.route)) {
+                                navController.popBackStack("home", inclusive = false)
+                            } else {
+                                navController.navigate("home") {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
                         }
                     }
                 )
@@ -201,16 +226,24 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
             startDestination = "home",
             modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
             enterTransition = {
-                val initialIndex = getRouteIndex(initialState.destination.route)
-                val targetIndex = getRouteIndex(targetState.destination.route)
-                val direction = if (targetIndex > initialIndex) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
-                slideIntoContainer(towards = direction, animationSpec = tween(300))
+                if (isMainTab(initialState.destination.route) && isMainTab(targetState.destination.route)) {
+                    val initialIndex = getRouteIndex(initialState.destination.route)
+                    val targetIndex = getRouteIndex(targetState.destination.route)
+                    val direction = if (targetIndex > initialIndex) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
+                    slideIntoContainer(towards = direction, animationSpec = tween(300))
+                } else {
+                    slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(300))
+                }
             },
             exitTransition = {
-                val initialIndex = getRouteIndex(initialState.destination.route)
-                val targetIndex = getRouteIndex(targetState.destination.route)
-                val direction = if (targetIndex > initialIndex) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
-                slideOutOfContainer(towards = direction, animationSpec = tween(300))
+                if (isMainTab(initialState.destination.route) && isMainTab(targetState.destination.route)) {
+                    val initialIndex = getRouteIndex(initialState.destination.route)
+                    val targetIndex = getRouteIndex(targetState.destination.route)
+                    val direction = if (targetIndex > initialIndex) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
+                    slideOutOfContainer(towards = direction, animationSpec = tween(300))
+                } else {
+                    slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(300))
+                }
             },
             popEnterTransition = {
                 slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(300))

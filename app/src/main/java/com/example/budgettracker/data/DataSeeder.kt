@@ -16,17 +16,17 @@ suspend fun seedDatabaseIfEmpty(repository: BudgetRepository) {
     if (existingAccounts.isEmpty()) {
         repository.insertAccount(
             Account(
-                name = "Main Checking",
+                name = "Main Wallet",
                 type = AccountType.CHECKING,
-                balance = 5000.0,
+                balance = 0.0,
                 colorArgb = 0xFF3B82F6.toInt() // Blue-500
             )
         )
         repository.insertAccount(
             Account(
-                name = "Savings",
+                name = "Online Wallet",
                 type = AccountType.SAVINGS,
-                balance = 10000.0,
+                balance = 0.0,
                 colorArgb = 0xFF10B981.toInt() // Emerald-500
             )
         )
@@ -65,9 +65,7 @@ suspend fun seedDatabaseIfEmpty(repository: BudgetRepository) {
     val calendar = Calendar.getInstance()
     val currentMonth = calendar.get(Calendar.MONTH) + 1
     val currentYear = calendar.get(Calendar.YEAR)
-
-    val limits = listOf(400.0, 1200.0, 150.0, 100.0, 200.0, 0.0, 150.0, 100.0, 200.0, 500.0, 100.0, 300.0, 50.0, 50.0, 100.0, 30.0, 100.0, 500.0, 200.0, 0.0, 0.0, 200.0, 50.0, 0.0, 0.0, 0.0, 0.0)
-
+    val limits = listOf(8000.0, 15000.0, 3000.0, 3000.0, 5000.0, 0.0, 4000.0, 2000.0, 3000.0, 5000.0, 2500.0, 5000.0, 1000.0, 1500.0, 2000.0, 1000.0, 1500.0, 5000.0, 2000.0, 0.0, 0.0, 6000.0, 500.0, 0.0, 0.0, 0.0, 0.0)
     defaultCategories.forEachIndexed { index, category ->
         val existing = existingCategories.find { it.name == category.name && it.type == category.type }
         if (existing == null) {

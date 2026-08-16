@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,9 @@ fun WalletManagementScreen(
     var selectedColorIndex by remember { mutableStateOf(0) }
     
     var walletToDelete by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(null) }
+    
+    var walletToEdit by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(null) }
+    var editName by remember { mutableStateOf("") }
     
     val colors = listOf(EmeraldGreen, CatSoftBlue, CatAmber)
 
@@ -153,8 +157,16 @@ fun WalletManagementScreen(
                                 Text(com.example.budgettracker.ui.utils.CurrencyUtils.formatAmount(account.balance), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        IconButton(onClick = { walletToDelete = account }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        Row {
+                            IconButton(onClick = {
+                                walletToEdit = account
+                                editName = account.name
+                            }) {
+                                Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { walletToDelete = account }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }
@@ -182,6 +194,38 @@ fun WalletManagementScreen(
             },
             dismissButton = {
                 TextButton(onClick = { walletToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Edit Name Dialog
+    walletToEdit?.let { account ->
+        AlertDialog(
+            onDismissRequest = { walletToEdit = null },
+            title = { Text("Rename Wallet") },
+            text = {
+                OutlinedTextField(
+                    value = editName,
+                    onValueChange = { editName = it },
+                    label = { Text("Wallet Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateWalletName(account, editName)
+                        walletToEdit = null
+                    },
+                    enabled = editName.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { walletToEdit = null }) {
                     Text("Cancel")
                 }
             }

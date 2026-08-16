@@ -37,20 +37,30 @@ class DailyReminderWorker(
             cal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
         }
 
-        if (!hasTransactionsToday) {
-            showNotification()
+        val debts = repository.getAllDebts().first()
+        val unpaidDebtsCount = debts.count { !it.isPaid }
+
+        if (!hasTransactionsToday || unpaidDebtsCount > 0) {
+            var text = ""
+            if (!hasTransactionsToday) {
+                text += "You haven't logged any transactions today. "
+            }
+            if (unpaidDebtsCount > 0) {
+                text += "You have $unpaidDebtsCount pending debt(s)."
+            }
+            showNotification("Budget Tracker Reminder", text.trim())
         }
 
         return Result.success()
     }
 
-    private fun showNotification() {
+    private fun showNotification(title: String, text: String) {
         val channelId = "daily_reminder_channel"
         val notificationId = 1
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Daily Reminders"
-            val descriptionText = "Reminders to log your expenses"
+            val descriptionText = "Reminders to log your expenses and check debts"
             val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(channelId, name, importance).apply {
                 description = descriptionText
@@ -62,8 +72,9 @@ class DailyReminderWorker(
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info) // Replace with your app's icon
-            .setContentTitle("Budget Tracker Reminder")
-            .setContentText("You haven't logged any transactions today. Keep your budget up to date!")
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 
