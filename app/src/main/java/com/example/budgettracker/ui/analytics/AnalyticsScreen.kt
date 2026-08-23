@@ -44,11 +44,17 @@ import com.example.budgettracker.ui.components.PieChartData
 import com.example.budgettracker.ui.theme.CategoryColors
 import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.utils.CurrencyUtils
+import com.example.budgettracker.ui.components.charts.CashflowChart
+import com.example.budgettracker.ui.components.charts.WealthChart
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.ThumbUp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalyticsScreen(
     viewModel: AnalyticsViewModel,
+    onNavigateToWrapped: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -76,7 +82,45 @@ fun AnalyticsScreen(
                 currentYear = uiState.currentYear,
                 onMonthChanged = { m, y -> viewModel.setMonth(m, y) }
             )
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            androidx.compose.material3.Button(
+                onClick = { onNavigateToWrapped(uiState.currentMonth, uiState.currentYear) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Filled.Star, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("View Monthly Wrapped")
+            }
             Spacer(modifier = Modifier.height(16.dp))
+            
+            // Insight Card
+            if (uiState.insights.isNotEmpty()) {
+                val insight = uiState.insights.first()
+                val (icon, color) = when (insight.type) {
+                    InsightType.PRAISE -> Icons.Filled.ThumbUp to EmeraldGreen
+                    InsightType.WARNING -> Icons.Filled.Warning to MaterialTheme.colorScheme.error
+                    InsightType.OBSERVATION -> Icons.Filled.Lightbulb to MaterialTheme.colorScheme.primary
+                }
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                        Icon(icon, contentDescription = null, tint = color)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(insight.title, fontWeight = FontWeight.Bold, color = color)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(insight.message, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // High-Level Financial Overview
             Card(
@@ -166,6 +210,11 @@ fun AnalyticsScreen(
                         onClick = { selectedTabIndex = 1 },
                         text = { Text("Categories") }
                     )
+                    Tab(
+                        selected = selectedTabIndex == 2,
+                        onClick = { selectedTabIndex = 2 },
+                        text = { Text("Trends") }
+                    )
                 }
                 
                 LazyColumn(
@@ -211,7 +260,7 @@ fun AnalyticsScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
-                    } else {
+                    } else if (selectedTabIndex == 1) {
                         // Categories Tab
                         item {
                             SingleChoiceSegmentedButtonRow(
@@ -333,6 +382,35 @@ fun AnalyticsScreen(
                                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
                                 )
                             }
+                        }
+                    } else if (selectedTabIndex == 2) {
+                        // Trends Tab (Vico Charts)
+                        item {
+                            Text(
+                                text = "Cashflow (Last 6 Months)",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            CashflowChart(
+                                incomeData = uiState.cashflowIncome,
+                                expenseData = uiState.cashflowExpense
+                            )
+                            
+                            Spacer(modifier = Modifier.height(32.dp))
+                            
+                            Text(
+                                text = "Net Savings Trend",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            val netData = uiState.cashflowIncome.zip(uiState.cashflowExpense) { inc, exp -> inc - exp }
+                            WealthChart(dataPoints = netData)
                         }
                     }
                 }

@@ -41,6 +41,8 @@ import com.example.budgettracker.ui.add.AddTransactionScreen
 import com.example.budgettracker.ui.add.AddTransactionViewModel
 import com.example.budgettracker.ui.analytics.AnalyticsScreen
 import com.example.budgettracker.ui.analytics.AnalyticsViewModel
+import com.example.budgettracker.ui.analytics.WrappedScreen
+import com.example.budgettracker.ui.analytics.WrappedViewModel
 import com.example.budgettracker.ui.assign.AssignBudgetScreen
 import com.example.budgettracker.ui.assign.AssignBudgetViewModel
 import com.example.budgettracker.ui.debt.DebtTrackerScreen
@@ -121,6 +123,9 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                 }
                 if (modelClass.isAssignableFrom(AnalyticsViewModel::class.java)) {
                     return AnalyticsViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
+                }
+                if (modelClass.isAssignableFrom(WrappedViewModel::class.java)) {
+                    return WrappedViewModel(appContainer.budgetRepository) as T
                 }
                 if (modelClass.isAssignableFrom(AssignBudgetViewModel::class.java)) {
                     return AssignBudgetViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
@@ -270,7 +275,27 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
             }
             composable("analytics") {
                 val analyticsViewModel: AnalyticsViewModel = viewModel(factory = factory)
-                AnalyticsScreen(viewModel = analyticsViewModel)
+                AnalyticsScreen(
+                    viewModel = analyticsViewModel,
+                    onNavigateToWrapped = { month, year -> navController.navigate("wrapped/$month/$year") }
+                )
+            }
+            composable(
+                route = "wrapped/{month}/{year}",
+                arguments = listOf(
+                    navArgument("month") { type = NavType.IntType },
+                    navArgument("year") { type = NavType.IntType }
+                )
+            ) { backStackEntry ->
+                val month = backStackEntry.arguments?.getInt("month") ?: 1
+                val year = backStackEntry.arguments?.getInt("year") ?: 2026
+                val wrappedViewModel: WrappedViewModel = viewModel(factory = factory)
+                WrappedScreen(
+                    month = month,
+                    year = year,
+                    viewModel = wrappedViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
             composable("add_transaction") {
                 val addTransactionViewModel: AddTransactionViewModel = viewModel(factory = factory)
