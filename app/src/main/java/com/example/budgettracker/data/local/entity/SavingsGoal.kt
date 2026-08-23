@@ -10,5 +10,8 @@ data class SavingsGoal(
     val name: String,
     val targetAmount: Double,
     val currentAmount: Double = 0.0,
-    val iconName: String? = null
+    val iconName: String? = null,
+    val targetDate: Long? = null,
+    val contributionFrequency: String? = null,
+    val contributionAmount: Double? = null
 )

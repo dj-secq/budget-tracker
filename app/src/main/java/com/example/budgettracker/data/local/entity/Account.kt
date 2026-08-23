@@ -14,5 +14,6 @@ data class Account(
     val name: String,
     val type: AccountType,
     val balance: Double = 0.0,
-    val colorArgb: Int
+    val colorArgb: Int,
+    val includeInTotalBalance: Boolean = true
 )

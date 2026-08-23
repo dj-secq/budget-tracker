@@ -28,12 +28,22 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE accounts ADD COLUMN includeInTotalBalance INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE debts ADD COLUMN accountId INTEGER")
+                database.execSQL("ALTER TABLE savings_goals ADD COLUMN targetDate INTEGER")
+                database.execSQL("ALTER TABLE savings_goals ADD COLUMN contributionFrequency TEXT")
+                database.execSQL("ALTER TABLE savings_goals ADD COLUMN contributionAmount REAL")
+            }
+        }
+
         Room.databaseBuilder(
             context,
             AppDatabase::class.java,
             "budget_tracker_db"
         )
-         .addMigrations(MIGRATION_8_9)
+         .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
          .fallbackToDestructiveMigration()
          .build()
     }

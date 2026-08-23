@@ -66,7 +66,7 @@ class AnalyticsViewModel(
         val (month, year) = monthYear
         
         // Total Income (monthly)
-        val incomeCategories = categories.filter { it.type == CategoryType.INCOME }
+        val incomeCategories = categories.filter { it.type == CategoryType.INCOME && it.name != "Deposit / Transfer In" }
         val totalIncome = transactions.filter { tx -> incomeCategories.any { it.id == tx.categoryId } }.sumOf { it.amount }
 
         // Needs / Wants / Savings
@@ -81,12 +81,12 @@ class AnalyticsViewModel(
         )
 
         // Spending by category (monthly)
-        val expenseSpendingData = categories.filter { it.type == CategoryType.EXPENSE }.map { category ->
+        val expenseSpendingData = categories.filter { it.type == CategoryType.EXPENSE && it.name != "Withdraw / Transfer Out" }.map { category ->
             val sum = transactions.filter { it.categoryId == category.id }.sumOf { it.amount }
             CategorySpending(category, sum)
         }.filter { it.totalSpent > 0 }
 
-        val incomeSpendingData = categories.filter { it.type == CategoryType.INCOME }.map { category ->
+        val incomeSpendingData = incomeCategories.map { category ->
             val sum = transactions.filter { it.categoryId == category.id }.sumOf { it.amount }
             CategorySpending(category, sum)
         }.filter { it.totalSpent > 0 }

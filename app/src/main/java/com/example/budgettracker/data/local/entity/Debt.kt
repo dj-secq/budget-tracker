@@ -18,5 +18,6 @@ data class Debt(
     val isPaid: Boolean = false,
     val note: String = "",
     val dueDate: Long? = null,
-    val interestRate: Double = 0.0
+    val interestRate: Double = 0.0,
+    val accountId: Long? = null
 )

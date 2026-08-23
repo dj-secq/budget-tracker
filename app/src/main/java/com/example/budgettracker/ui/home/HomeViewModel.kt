@@ -75,12 +75,11 @@ class HomeViewModel(
         val (monthTransactions, budgetLimits) = monthlyData
         val (month, year) = monthYear
         
-        val incomeCategories = categories.filter { it.type == CategoryType.INCOME }
-        val expenseCategories = categories.filter { it.type == CategoryType.EXPENSE }
+        val incomeCategories = categories.filter { it.type == CategoryType.INCOME && it.name != "Deposit / Transfer In" }
+        val expenseCategories = categories.filter { it.type == CategoryType.EXPENSE && it.name != "Withdraw / Transfer Out" }
         
         // Gamification: Streaks
-        val expenseDaysLocal = allTransactions
-            .filter { tx -> expenseCategories.any { it.id == tx.categoryId } }
+        val activeDaysLocal = allTransactions
             .map {
                 val cal = Calendar.getInstance().apply { timeInMillis = it.timestamp }
                 cal.get(Calendar.YEAR) * 10000 + cal.get(Calendar.MONTH) * 100 + cal.get(Calendar.DAY_OF_MONTH)
@@ -104,7 +103,7 @@ class HomeViewModel(
             var tempStreak = 0
             while(checkCal.timeInMillis < todayTime) {
                 val d = checkCal.get(Calendar.YEAR) * 10000 + checkCal.get(Calendar.MONTH) * 100 + checkCal.get(Calendar.DAY_OF_MONTH)
-                if (!expenseDaysLocal.contains(d)) {
+                if (activeDaysLocal.contains(d)) {
                     tempStreak++
                     if (tempStreak > longestStreak) longestStreak = tempStreak
                 } else {
@@ -115,8 +114,8 @@ class HomeViewModel(
             
             // Calculate current streak (look backwards from today)
             val todayCal = Calendar.getInstance()
-            val oldestExpenseDay = if (expenseDaysLocal.isNotEmpty()) {
-                expenseDaysLocal.minOrNull() ?: 0
+            val oldestExpenseDay = if (activeDaysLocal.isNotEmpty()) {
+                activeDaysLocal.minOrNull() ?: 0
             } else {
                 val cal = Calendar.getInstance().apply { timeInMillis = firstTxTime }
                 cal.get(Calendar.YEAR) * 10000 + cal.get(Calendar.MONTH) * 100 + cal.get(Calendar.DAY_OF_MONTH)
@@ -129,7 +128,7 @@ class HomeViewModel(
                     break
                 }
                 
-                if (!expenseDaysLocal.contains(d)) {
+                if (activeDaysLocal.contains(d)) {
                     currentStreak++
                     todayCal.add(Calendar.DAY_OF_YEAR, -1)
                 } else {
@@ -148,7 +147,7 @@ class HomeViewModel(
         }.sumOf { it.amount }
         
         // Sum all account balances
-        val totalBalance = accounts.sumOf { it.balance }
+        val totalBalance = accounts.filter { it.includeInTotalBalance }.sumOf { it.balance }
         
         // Budget items use monthly spending
         val items = expenseCategories.map { category ->

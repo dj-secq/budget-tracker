@@ -32,18 +32,20 @@ class DebtTrackerViewModel(
         note: String, 
         accountId: Long,
         dueDate: Long?,
-        interestRate: Double
+        interestRate: Double,
+        startDate: Long
     ) {
         viewModelScope.launch {
             val debt = Debt(
                 personName = personName,
                 amount = amount,
                 type = type,
-                date = System.currentTimeMillis(),
+                date = startDate,
                 isPaid = false,
                 note = note,
                 dueDate = dueDate,
-                interestRate = interestRate
+                interestRate = interestRate,
+                accountId = accountId
             )
             repository.insertDebt(debt)
 
@@ -61,7 +63,7 @@ class DebtTrackerViewModel(
                 accountId = accountId,
                 categoryId = category.id,
                 amount = amount,
-                timestamp = System.currentTimeMillis(),
+                timestamp = startDate,
                 note = if (type == DebtType.LENT) "Lent to $personName" else "Borrowed from $personName",
                 classification = com.example.budgettracker.data.local.entity.ExpenseClassification.NONE
             )
@@ -88,7 +90,9 @@ class DebtTrackerViewModel(
                     category = Category(id = newCatId, name = catName, type = catType, colorArgb = 0xFF4CAF50.toInt())
                 }
                 
-                val totalAmount = debt.amount + (debt.amount * (debt.interestRate / 100.0))
+                val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - debt.date).coerceAtLeast(0)
+                val interest = debt.amount * (debt.interestRate / 100.0) * (days / 365.0)
+                val totalAmount = debt.amount + interest
                 
                 val transaction = Transaction(
                     accountId = accountId,
@@ -100,6 +104,32 @@ class DebtTrackerViewModel(
                 )
                 repository.insertTransaction(transaction)
             }
+        }
+    }
+
+    fun updateDebt(
+        debt: Debt,
+        personName: String, 
+        amount: Double, 
+        type: DebtType, 
+        note: String, 
+        accountId: Long,
+        dueDate: Long?,
+        interestRate: Double,
+        startDate: Long
+    ) {
+        viewModelScope.launch {
+            val updatedDebt = debt.copy(
+                personName = personName,
+                amount = amount,
+                type = type,
+                date = startDate,
+                note = note,
+                dueDate = dueDate,
+                interestRate = interestRate,
+                accountId = accountId
+            )
+            repository.updateDebt(updatedDebt)
         }
     }
 

@@ -41,11 +41,13 @@ fun WalletManagementScreen(
     var name by remember { mutableStateOf("") }
     var balance by remember { mutableStateOf("") }
     var selectedColorIndex by remember { mutableStateOf(0) }
+    var includeInTotalBalance by remember { mutableStateOf(true) }
     
     var walletToDelete by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(null) }
     
     var walletToEdit by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(null) }
     var editName by remember { mutableStateOf("") }
+    var editIncludeInTotal by remember { mutableStateOf(true) }
     
     val colors = listOf(EmeraldGreen, CatSoftBlue, CatAmber)
 
@@ -115,13 +117,27 @@ fun WalletManagementScreen(
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Include in Total Balance")
+                    Switch(
+                        checked = includeInTotalBalance,
+                        onCheckedChange = { includeInTotalBalance = it }
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
                         val parsedBalance = balance.toDoubleOrNull() ?: 0.0
                         if (name.isNotBlank()) {
-                            viewModel.addWallet(name, parsedBalance, selectedColorIndex)
+                            viewModel.addWallet(name, parsedBalance, selectedColorIndex, includeInTotalBalance)
                             name = ""
                             balance = ""
+                            includeInTotalBalance = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -155,12 +171,16 @@ fun WalletManagementScreen(
                             Column {
                                 Text(account.name, fontWeight = FontWeight.Bold)
                                 Text(com.example.budgettracker.ui.utils.CurrencyUtils.formatAmount(account.balance), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (!account.includeInTotalBalance) {
+                                    Text("Excluded from Total", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                         Row {
                             IconButton(onClick = {
                                 walletToEdit = account
                                 editName = account.name
+                                editIncludeInTotal = account.includeInTotalBalance
                             }) {
                                 Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
                             }
@@ -204,19 +224,33 @@ fun WalletManagementScreen(
     walletToEdit?.let { account ->
         AlertDialog(
             onDismissRequest = { walletToEdit = null },
-            title = { Text("Rename Wallet") },
+            title = { Text("Edit Wallet") },
             text = {
-                OutlinedTextField(
-                    value = editName,
-                    onValueChange = { editName = it },
-                    label = { Text("Wallet Name") },
-                    singleLine = true
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Wallet Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Include in Total Balance")
+                        Switch(
+                            checked = editIncludeInTotal,
+                            onCheckedChange = { editIncludeInTotal = it }
+                        )
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.updateWalletName(account, editName)
+                        viewModel.updateWallet(account, editName, editIncludeInTotal)
                         walletToEdit = null
                     },
                     enabled = editName.isNotBlank()

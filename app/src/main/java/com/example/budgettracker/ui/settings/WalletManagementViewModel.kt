@@ -25,7 +25,7 @@ class WalletManagementViewModel(
     val accounts: StateFlow<List<Account>> = repository.getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun addWallet(name: String, startingBalance: Double, colorIndex: Int) {
+    fun addWallet(name: String, startingBalance: Double, colorIndex: Int, includeInTotalBalance: Boolean = true) {
         viewModelScope.launch {
             val colors = listOf(EmeraldGreen.toArgb(), CatSoftBlue.toArgb(), CatAmber.toArgb())
             val color = colors[colorIndex % colors.size]
@@ -33,7 +33,8 @@ class WalletManagementViewModel(
                 name = name,
                 type = AccountType.CHECKING,
                 balance = startingBalance,
-                colorArgb = color
+                colorArgb = color,
+                includeInTotalBalance = includeInTotalBalance
             )
             repository.insertAccount(account)
             // Note: If startingBalance > 0, we should arguably create an initial transaction, 
@@ -47,9 +48,9 @@ class WalletManagementViewModel(
         }
     }
 
-    fun updateWalletName(account: Account, newName: String) {
+    fun updateWallet(account: Account, newName: String, includeInTotalBalance: Boolean) {
         viewModelScope.launch {
-            repository.updateAccount(account.copy(name = newName))
+            repository.updateAccount(account.copy(name = newName, includeInTotalBalance = includeInTotalBalance))
         }
     }
 }

@@ -264,6 +264,22 @@ fun SettingsScreen(
                 }
             }
 
+            // Check for Updates Card
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            Card(
+                onClick = { uriHandler.openUri("https://github.com/KatsuoSaito/BudgetTracker/releases") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = "Check for Updates", tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Check for Updates", fontWeight = FontWeight.Medium)
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(

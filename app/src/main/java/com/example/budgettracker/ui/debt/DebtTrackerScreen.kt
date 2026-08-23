@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +39,7 @@ fun DebtTrackerScreen(
     val accounts by viewModel.accounts.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var debtToPay by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Debt?>(null) }
+    var debtToEdit by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Debt?>(null) }
 
     Scaffold(
         topBar = {
@@ -112,6 +114,7 @@ fun DebtTrackerScreen(
                                     viewModel.toggleDebtStatus(debt, null)
                                 }
                             },
+                            onEdit = { debtToEdit = debt },
                             onDelete = { viewModel.deleteDebt(debt) }
                         )
                     }
@@ -119,13 +122,22 @@ fun DebtTrackerScreen(
             }
         }
         
-        if (showAddDialog) {
-            AddDebtDialog(
+        if (showAddDialog || debtToEdit != null) {
+            DebtFormDialog(
                 accounts = accounts,
-                onDismiss = { showAddDialog = false },
-                onAdd = { name, amount, type, note, accountId, dueDate, interestRate ->
-                    viewModel.addDebt(name, amount, type, note, accountId, dueDate, interestRate)
+                debtToEdit = debtToEdit,
+                onDismiss = { 
                     showAddDialog = false
+                    debtToEdit = null
+                },
+                onSave = { name, amount, type, note, accountId, dueDate, interestRate, startDate ->
+                    if (debtToEdit != null) {
+                        viewModel.updateDebt(debtToEdit!!, name, amount, type, note, accountId, dueDate, interestRate, startDate)
+                    } else {
+                        viewModel.addDebt(name, amount, type, note, accountId, dueDate, interestRate, startDate)
+                    }
+                    showAddDialog = false
+                    debtToEdit = null
                 }
             )
         }
@@ -145,7 +157,7 @@ fun DebtTrackerScreen(
 }
 
 @Composable
-fun DebtItem(debt: Debt, onToggleStatus: () -> Unit, onDelete: () -> Unit) {
+fun DebtItem(debt: Debt, onToggleStatus: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -182,7 +194,9 @@ fun DebtItem(debt: Debt, onToggleStatus: () -> Unit, onDelete: () -> Unit) {
                 val color = if (debt.isPaid) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             else if (debt.type == DebtType.LENT) EmeraldGreen else MaterialTheme.colorScheme.error
                             
-                val totalAmount = debt.amount + (debt.amount * (debt.interestRate / 100.0))
+                val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - debt.date).coerceAtLeast(0)
+                val interest = debt.amount * (debt.interestRate / 100.0) * (days / 365.0)
+                val totalAmount = debt.amount + interest
                 Text(
                     text = CurrencyUtils.formatAmount(totalAmount),
                     fontWeight = FontWeight.Bold,
@@ -197,8 +211,13 @@ fun DebtItem(debt: Debt, onToggleStatus: () -> Unit, onDelete: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
@@ -207,22 +226,28 @@ fun DebtItem(debt: Debt, onToggleStatus: () -> Unit, onDelete: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddDebtDialog(
+fun DebtFormDialog(
     accounts: List<com.example.budgettracker.data.local.entity.Account>,
+    debtToEdit: com.example.budgettracker.data.local.entity.Debt? = null,
     onDismiss: () -> Unit,
-    onAdd: (String, Double, DebtType, String, Long, Long?, Double) -> Unit
+    onSave: (String, Double, DebtType, String, Long, Long?, Double, Long) -> Unit
 ) {
-    var personName by remember { mutableStateOf("") }
-    var amountStr by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(DebtType.LENT) }
-    var interestRateStr by remember { mutableStateOf("") }
+    var personName by remember { mutableStateOf(debtToEdit?.personName ?: "") }
+    var amountStr by remember { mutableStateOf(debtToEdit?.amount?.toString() ?: "") }
+    var note by remember { mutableStateOf(debtToEdit?.note ?: "") }
+    var type by remember { mutableStateOf(debtToEdit?.type ?: DebtType.LENT) }
+    var interestRateStr by remember { mutableStateOf(debtToEdit?.interestRate?.takeIf { it > 0 }?.toString() ?: "") }
     
-    var selectedAccount by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(accounts.firstOrNull()) }
+    var selectedAccount by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Account?>(
+        accounts.find { it.id == debtToEdit?.accountId } ?: accounts.firstOrNull()
+    ) }
     var accountDropdownExpanded by remember { mutableStateOf(false) }
     
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    val startDatePickerState = rememberDatePickerState(initialSelectedDateMillis = debtToEdit?.date ?: System.currentTimeMillis())
+    
     var showDatePicker by remember { mutableStateOf(false) }
-    val datePickerState = rememberDatePickerState()
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = debtToEdit?.dueDate)
 
     if (showDatePicker) {
         DatePickerDialog(
@@ -231,19 +256,30 @@ fun AddDebtDialog(
                 TextButton(onClick = { showDatePicker = false }) { Text("OK") }
             },
             dismissButton = {
-                TextButton(onClick = { 
-                    showDatePicker = false
-                    // Reset date if they cancel maybe? Actually we just hide it.
-                }) { Text("Cancel") }
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
             }
         ) {
             DatePicker(state = datePickerState)
         }
     }
+    
+    if (showStartDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showStartDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showStartDatePicker = false }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = startDatePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Debt") },
+        title = { Text(if (debtToEdit != null) "Edit Debt" else "Add Debt") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -270,18 +306,32 @@ fun AddDebtDialog(
                     )
                 }
                 
-                OutlinedTextField(
-                    value = datePickerState.selectedDateMillis?.let { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(it)) } ?: "No Due Date",
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Due Date") },
-                    trailingIcon = { 
-                        IconButton(onClick = { showDatePicker = true }) {
-                            Icon(Icons.Filled.Add, contentDescription = "Select Date")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = startDatePickerState.selectedDateMillis?.let { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(it)) } ?: "Today",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Start Date") },
+                        modifier = Modifier.weight(1f).clickable { showStartDatePicker = true },
+                        trailingIcon = { 
+                            IconButton(onClick = { showStartDatePicker = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = "Select Start Date")
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }
-                )
+                    )
+                    OutlinedTextField(
+                        value = datePickerState.selectedDateMillis?.let { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(it)) } ?: "No Due Date",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Due Date") },
+                        modifier = Modifier.weight(1f).clickable { showDatePicker = true },
+                        trailingIcon = { 
+                            IconButton(onClick = { showDatePicker = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = "Select Due Date")
+                            }
+                        }
+                    )
+                }
                 
                 OutlinedTextField(
                     value = note,
@@ -338,12 +388,13 @@ fun AddDebtDialog(
                 onClick = {
                     val amount = amountStr.toDoubleOrNull()
                     val interest = interestRateStr.toDoubleOrNull() ?: 0.0
+                    val startMillis = startDatePickerState.selectedDateMillis ?: System.currentTimeMillis()
                     if (personName.isNotBlank() && amount != null && amount > 0 && selectedAccount != null) {
-                        onAdd(personName, amount, type, note, selectedAccount!!.id, datePickerState.selectedDateMillis, interest)
+                        onSave(personName, amount, type, note, selectedAccount!!.id, datePickerState.selectedDateMillis, interest, startMillis)
                     }
                 }
             ) {
-                Text("Add")
+                Text("Save")
             }
         },
         dismissButton = {
@@ -366,7 +417,9 @@ fun PayDebtDialog(
     var accountDropdownExpanded by remember { mutableStateOf(false) }
     
     val actionText = if (debt.type == com.example.budgettracker.data.local.entity.DebtType.LENT) "received from" else "paid to"
-    val totalAmount = debt.amount + (debt.amount * (debt.interestRate / 100.0))
+    val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - debt.date).coerceAtLeast(0)
+    val interest = debt.amount * (debt.interestRate / 100.0) * (days / 365.0)
+    val totalAmount = debt.amount + interest
 
     AlertDialog(
         onDismissRequest = onDismiss,
