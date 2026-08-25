@@ -22,7 +22,10 @@ data class WrappedUiState(
     val largestExpense: Transaction? = null,
     val largestExpenseCategory: String = "",
     val topCategories: List<Pair<String, Double>> = emptyList(),
-    val verdict: String = ""
+    val verdict: String = "",
+    val busiestDayOfWeek: String = "",
+    val totalTransactions: Int = 0,
+    val noSpendDays: Int = 0
 )
 
 class WrappedViewModel(
@@ -66,8 +69,74 @@ class WrappedViewModel(
                 .sortedByDescending { it.second }
                 .take(3)
                 
+            // Busiest Day of Week
+            val dayNames = arrayOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+            val busiestDay = expenseTxs.groupBy {
+                val cal = Calendar.getInstance().apply { timeInMillis = it.timestamp }
+                cal.get(Calendar.DAY_OF_WEEK)
+            }.maxByOrNull { it.value.size }
+            
+            val busiestDayName = busiestDay?.let { dayNames[it.key - 1] } ?: "Unknown"
+            
+            // Total Transactions
+            val totalTxs = incomeTxs.size + expenseTxs.size
+            
+            // No Spend Days
+            val cal = Calendar.getInstance()
+            cal.set(year, month - 1, 1)
+            val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            
+            val spendDays = expenseTxs.map { tx ->
+                val txCal = Calendar.getInstance().apply { timeInMillis = tx.timestamp }
+                txCal.get(Calendar.DAY_OF_MONTH)
+            }.toSet()
+            
+            // Only count past days if it's the current month, else whole month
+            val currentCal = Calendar.getInstance()
+            val isCurrentMonth = currentCal.get(Calendar.MONTH) + 1 == month && currentCal.get(Calendar.YEAR) == year
+            val maxDayToCount = if (isCurrentMonth) currentCal.get(Calendar.DAY_OF_MONTH) else daysInMonth
+            
+            // Find the user's very first transaction ever to avoid counting days before they started using the app
+            val allTxs = repository.getRecentTransactions().first()
+            val firstTxTime = allTxs.minOfOrNull { it.timestamp } ?: System.currentTimeMillis()
+            val firstTxCal = Calendar.getInstance().apply { timeInMillis = firstTxTime }
+            
+            val startDay = if (firstTxCal.get(Calendar.MONTH) + 1 == month && firstTxCal.get(Calendar.YEAR) == year) {
+                firstTxCal.get(Calendar.DAY_OF_MONTH)
+            } else if (firstTxCal.get(Calendar.YEAR) > year || (firstTxCal.get(Calendar.YEAR) == year && firstTxCal.get(Calendar.MONTH) + 1 > month)) {
+                // The wrapped month is BEFORE the user started using the app
+                maxDayToCount + 1 // This will make daysToCount <= 0
+            } else {
+                1
+            }
+            
+            val daysToCount = maxDayToCount - startDay + 1
+            val noSpendDaysCount = if (daysToCount <= 0) 0 else {
+                daysToCount - spendDays.filter { it in startDay..maxDayToCount }.size
+            }
+                
+            val topCategoryName = topCategories.firstOrNull()?.first ?: ""
+            val topCategorySpent = topCategories.firstOrNull()?.second ?: 0.0
+            val topCategoryRatio = if (totalSpent > 0) topCategorySpent / totalSpent else 0.0
+            
+            val incomeSourcesCount = incomeTxs.map { it.categoryId }.toSet().size
+            
             val verdict = when {
                 totalIncome == 0.0 && totalSpent == 0.0 -> "The Ghost"
+                
+                // Behavioral Verdicts
+                noSpendDaysCount >= 20 -> "The Financial Zen Master"
+                noSpendDaysCount <= 3 && totalTxs > 50 -> "The Micro-Spender"
+                largestExpense != null && largestExpense.amount > totalSpent * 0.7 -> "The Whale"
+                incomeSourcesCount >= 3 && totalIncome > totalSpent * 1.5 -> "The Hustler"
+                
+                // Category-Based Verdicts
+                topCategoryName in listOf("Food", "Groceries", "Dining") && topCategoryRatio > 0.3 -> "The Foodie"
+                topCategoryName == "Travel" && topCategoryRatio > 0.2 -> "The Wanderlust"
+                topCategoryName == "Entertainment" && topCategoryRatio > 0.2 -> "The Socialite"
+                topCategoryName in listOf("Rent", "Utilities", "Housing", "Groceries") && topCategoryRatio > 0.7 -> "The Essentialist"
+                
+                // Basic Verdicts
                 netSavings > totalIncome * 0.5 -> "The Super Saver"
                 netSavings > 0 -> "The Responsible Spender"
                 else -> "The High Roller"
@@ -82,7 +151,10 @@ class WrappedViewModel(
                 largestExpense = largestExpense,
                 largestExpenseCategory = largestExpenseCategoryName,
                 topCategories = topCategories,
-                verdict = verdict
+                verdict = verdict,
+                busiestDayOfWeek = busiestDayName,
+                totalTransactions = totalTxs,
+                noSpendDays = Math.max(0, noSpendDaysCount)
             )
         }
     }

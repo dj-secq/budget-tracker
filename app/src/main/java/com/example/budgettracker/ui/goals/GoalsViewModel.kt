@@ -64,7 +64,7 @@ class GoalsViewModel(
         }
     }
 
-    fun addGoal(name: String, targetAmount: Double, targetDate: Long? = null, frequency: String? = null, contributionAmount: Double? = null) {
+    fun addGoal(name: String, targetAmount: Double, targetDate: Long? = null, frequency: String? = null, contributionAmount: Double? = null, iconName: String? = null) {
         viewModelScope.launch {
             val goal = SavingsGoal(
                 name = name,
@@ -72,13 +72,14 @@ class GoalsViewModel(
                 currentAmount = 0.0,
                 targetDate = targetDate,
                 contributionFrequency = frequency,
-                contributionAmount = contributionAmount
+                contributionAmount = contributionAmount,
+                iconName = iconName
             )
             repository.insertGoal(goal)
         }
     }
 
-    fun updateGoal(goal: SavingsGoal, name: String, targetAmount: Double, targetDate: Long?, frequency: String?, contributionAmount: Double?) {
+    fun updateGoal(goal: SavingsGoal, name: String, targetAmount: Double, targetDate: Long?, frequency: String?, contributionAmount: Double?, iconName: String? = null) {
         viewModelScope.launch {
             repository.updateGoal(
                 goal.copy(
@@ -86,7 +87,8 @@ class GoalsViewModel(
                     targetAmount = targetAmount,
                     targetDate = targetDate,
                     contributionFrequency = frequency,
-                    contributionAmount = contributionAmount
+                    contributionAmount = contributionAmount,
+                    iconName = iconName
                 )
             )
         }

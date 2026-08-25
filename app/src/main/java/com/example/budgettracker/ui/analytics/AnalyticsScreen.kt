@@ -1,10 +1,11 @@
 package com.example.budgettracker.ui.analytics
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,6 +74,7 @@ fun AnalyticsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(top = innerPadding.calculateTopPadding())
                 .padding(horizontal = 24.dp)
                 .padding(top = 24.dp)
@@ -217,14 +219,13 @@ fun AnalyticsScreen(
                     )
                 }
                 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(top = 16.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (selectedTabIndex == 0) {
                         // Dashboard Cards
-                        items(uiState.bucketStats) { stat ->
+                        uiState.bucketStats.forEach { stat ->
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -262,10 +263,9 @@ fun AnalyticsScreen(
                         }
                     } else if (selectedTabIndex == 1) {
                         // Categories Tab
-                        item {
-                            SingleChoiceSegmentedButtonRow(
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                            ) {
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                        ) {
                                 SegmentedButton(
                                     selected = selectedCategoryType == 0,
                                     onClick = { selectedCategoryType = 0 },
@@ -281,25 +281,21 @@ fun AnalyticsScreen(
                                     Text("Income")
                                 }
                             }
-                        }
 
                         val activeCategorySpending = if (selectedCategoryType == 0) uiState.expenseCategorySpending else uiState.incomeCategorySpending
                         val activeTotal = if (selectedCategoryType == 0) uiState.totalExpenses else uiState.totalIncome
 
                         if (activeCategorySpending.isEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(32.dp))
-                                Text(
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Text(
                                     text = if (selectedCategoryType == 0) "No expenses this month." else "No income this month.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
                         } else {
                             // Pie Chart for spending breakdown
-                            item {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                val titleText = if (selectedCategoryType == 0) "Expense Breakdown" else "Income Breakdown"
-                                Text(
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val titleText = if (selectedCategoryType == 0) "Expense Breakdown" else "Income Breakdown"
+                            Text(
                                     text = titleText,
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
@@ -353,9 +349,7 @@ fun AnalyticsScreen(
                                         )
                                     }
                                 }
-                            }
                             
-                            item {
                                 Spacer(modifier = Modifier.height(32.dp))
                                 val barTitle = if (selectedCategoryType == 0) "Spending by Category" else "Income by Category"
                                 Text(
@@ -381,11 +375,9 @@ fun AnalyticsScreen(
                                     data = barData,
                                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
                                 )
-                            }
                         }
                     } else if (selectedTabIndex == 2) {
                         // Trends Tab (Vico Charts)
-                        item {
                             Text(
                                 text = "Cashflow (Last 6 Months)",
                                 fontSize = 18.sp,
@@ -411,7 +403,6 @@ fun AnalyticsScreen(
                             
                             val netData = uiState.cashflowIncome.zip(uiState.cashflowExpense) { inc, exp -> inc - exp }
                             WealthChart(dataPoints = netData)
-                        }
                     }
                 }
             }

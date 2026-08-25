@@ -51,12 +51,14 @@ fun GoalsScreen(
     var editGoalAmount by remember { mutableStateOf("") }
     var editGoalFrequency by remember { mutableStateOf("") } // Weekly, Monthly
     var editGoalContribution by remember { mutableStateOf("") }
+    var editGoalEmoji by remember { mutableStateOf("") }
 
     var showAddGoalDialog by remember { mutableStateOf(false) }
     var newGoalName by remember { mutableStateOf("") }
     var newGoalAmount by remember { mutableStateOf("") }
     var newGoalFrequency by remember { mutableStateOf("") }
     var newGoalContribution by remember { mutableStateOf("") }
+    var newGoalEmoji by remember { mutableStateOf("🎯") }
 
     Scaffold(
         topBar = {
@@ -125,13 +127,17 @@ fun GoalsScreen(
                     ) {
                         GoalCard(
                             goal = goal,
-                            onFundClick = { goalToFund = goal },
+                            onFundClick = { 
+                                goalToFund = goal 
+                                fundAmount = goal.contributionAmount?.let { if (it > 0) it.toString() else "" } ?: ""
+                            },
                             onEditClick = {
                                 goalToEdit = goal
                                 editGoalName = goal.name
                                 editGoalAmount = goal.targetAmount.toString()
                                 editGoalFrequency = goal.contributionFrequency ?: ""
                                 editGoalContribution = goal.contributionAmount?.toString() ?: ""
+                                editGoalEmoji = goal.iconName ?: "🎯"
                             }
                         )
                     }
@@ -152,12 +158,20 @@ fun GoalsScreen(
                 title = { Text("Add Savings Goal") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        OutlinedTextField(
-                            value = newGoalName,
-                            onValueChange = { newGoalName = it },
-                            label = { Text("Goal Name") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = newGoalEmoji,
+                                onValueChange = { newGoalEmoji = it.take(2) },
+                                label = { Text("Icon") },
+                                modifier = Modifier.weight(0.25f)
+                            )
+                            OutlinedTextField(
+                                value = newGoalName,
+                                onValueChange = { newGoalName = it },
+                                label = { Text("Goal Name") },
+                                modifier = Modifier.weight(0.75f)
+                            )
+                        }
                         OutlinedTextField(
                             value = newGoalAmount,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) newGoalAmount = it },
@@ -193,7 +207,8 @@ fun GoalsScreen(
                                     name = newGoalName, 
                                     targetAmount = amount, 
                                     frequency = newGoalFrequency.takeIf { it.isNotBlank() },
-                                    contributionAmount = contrib
+                                    contributionAmount = contrib,
+                                    iconName = newGoalEmoji.takeIf { it.isNotBlank() }
                                 )
                                 showAddGoalDialog = false
                                 newGoalName = ""
@@ -321,12 +336,20 @@ fun GoalsScreen(
                 title = { Text("Edit Savings Goal") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        OutlinedTextField(
-                            value = editGoalName,
-                            onValueChange = { editGoalName = it },
-                            label = { Text("Goal Name") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = editGoalEmoji,
+                                onValueChange = { editGoalEmoji = it.take(2) },
+                                label = { Text("Icon") },
+                                modifier = Modifier.weight(0.25f)
+                            )
+                            OutlinedTextField(
+                                value = editGoalName,
+                                onValueChange = { editGoalName = it },
+                                label = { Text("Goal Name") },
+                                modifier = Modifier.weight(0.75f)
+                            )
+                        }
                         OutlinedTextField(
                             value = editGoalAmount,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) editGoalAmount = it },
@@ -364,7 +387,8 @@ fun GoalsScreen(
                                     targetAmount = amount,
                                     targetDate = goal.targetDate,
                                     frequency = editGoalFrequency.takeIf { it.isNotBlank() },
-                                    contributionAmount = contrib
+                                    contributionAmount = contrib,
+                                    iconName = editGoalEmoji.takeIf { it.isNotBlank() }
                                 )
                                 goalToEdit = null
                             }
@@ -391,6 +415,9 @@ fun GoalCard(
     onEditClick: () -> Unit
 ) {
     val progress = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
+    val isComplete = progress >= 1f
+    
+    val needsAction = !isComplete && (goal.contributionAmount ?: 0.0) > 0.0 && !goal.contributionFrequency.isNullOrBlank()
     
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -402,73 +429,105 @@ fun GoalCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    text = goal.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxSize(),
+                            color = if (isComplete) Color(0xFFFFD700) else EmeraldGreen,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            strokeWidth = 6.dp
+                        )
+                        Text(
+                            text = goal.iconName ?: "🎯",
+                            fontSize = 24.sp
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    Column {
+                        Text(
+                            text = goal.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (needsAction) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "Due: ${CurrencyUtils.formatAmount(goal.contributionAmount!!)} / ${goal.contributionFrequency}",
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        } else if (isComplete) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Goal Reached! 🎉",
+                                color = Color(0xFFD4AF37),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (goal.contributionAmount != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${CurrencyUtils.formatAmount(goal.contributionAmount)} / ${goal.contributionFrequency}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+                
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onEditClick) {
                         Icon(Icons.Filled.Edit, contentDescription = "Edit Goal", tint = MaterialTheme.colorScheme.primary)
                     }
-                    Button(
-                        onClick = onFundClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text("Fund", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp)
-                    }
                 }
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = CurrencyUtils.formatAmount(goal.currentAmount),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = EmeraldGreen
-                )
-                Text(
-                    text = "Goal: ${CurrencyUtils.formatAmount(goal.targetAmount)}",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            if (goal.contributionAmount != null && !goal.contributionFrequency.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Reminder: ${CurrencyUtils.formatAmount(goal.contributionAmount)} / ${goal.contributionFrequency}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // Progress Bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction = progress)
-                        .fillMaxHeight()
-                        .background(EmeraldGreen)
-                )
+                Column {
+                    Text(
+                        text = CurrencyUtils.formatAmount(goal.currentAmount),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = if (isComplete) Color(0xFFD4AF37) else EmeraldGreen
+                    )
+                    Text(
+                        text = "of ${CurrencyUtils.formatAmount(goal.targetAmount)}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                if (!isComplete) {
+                    Button(
+                        onClick = onFundClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text("Fund Goal", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }

@@ -58,7 +58,7 @@ class AnalyticsViewModel(
 
     val uiState: StateFlow<AnalyticsUiState> = combine(
         repository.getAllCategories(),
-        repository.getAllTransactions(),
+        repository.getRecentTransactions(),
         preferencesRepository.budgetRulePreferencesFlow,
         _monthYear
     ) { categories, allTransactions, budgetRule, monthYear ->
@@ -131,9 +131,9 @@ class AnalyticsViewModel(
                 txCal.get(Calendar.MONTH) + 1 == m && txCal.get(Calendar.YEAR) == y
             }
             
-            val inc = mTransactions.filter { tx -> incomeCategories.any { it.id == tx.categoryId } }.sumOf { it.amount }.toFloat()
+            val inc = mTransactions.filter { tx -> incomeCategories.any { it.id == tx.categoryId } }.sumOf { tx -> tx.amount }.toFloat()
             val expCatIds = categories.filter { it.type == CategoryType.EXPENSE && it.name != "Withdraw / Transfer Out" }.map { it.id }
-            val exp = mTransactions.filter { expCatIds.contains(it.categoryId) }.sumOf { it.amount }.toFloat()
+            val exp = mTransactions.filter { tx -> expCatIds.contains(tx.categoryId) }.sumOf { tx -> tx.amount }.toFloat()
             
             cashflowIncome.add(inc)
             cashflowExpense.add(exp)

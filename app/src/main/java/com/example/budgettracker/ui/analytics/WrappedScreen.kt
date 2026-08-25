@@ -60,7 +60,7 @@ fun WrappedScreen(
                 CircularProgressIndicator()
             }
         } else {
-            val pagerState = rememberPagerState(pageCount = { 5 })
+            val pagerState = rememberPagerState(pageCount = { 7 })
             
             Box(modifier = Modifier.fillMaxSize()) {
                 HorizontalPager(
@@ -70,9 +70,11 @@ fun WrappedScreen(
                     when (page) {
                         0 -> IntroPage(uiState)
                         1 -> BigPicturePage(uiState)
-                        2 -> HeavyHitterPage(uiState)
-                        3 -> TopCategoriesPage(uiState)
-                        4 -> VerdictPage(uiState)
+                        2 -> ActivityPage(uiState)
+                        3 -> HeavyHitterPage(uiState)
+                        4 -> TopCategoriesPage(uiState)
+                        5 -> SaverPage(uiState)
+                        6 -> VerdictPage(uiState)
                     }
                 }
                 
@@ -85,7 +87,7 @@ fun WrappedScreen(
                         .padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    repeat(5) { iteration ->
+                    repeat(7) { iteration ->
                         val color = if (pagerState.currentPage == iteration) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
                         Box(
                             modifier = Modifier
@@ -145,6 +147,30 @@ fun BigPicturePage(state: WrappedUiState) {
 }
 
 @Composable
+fun ActivityPage(state: WrappedUiState) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Your Activity", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Text("You made a total of", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${state.totalTransactions}", fontSize = 64.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+        Text("transactions this month.", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        Spacer(modifier = Modifier.height(48.dp))
+        
+        if (state.busiestDayOfWeek.isNotBlank() && state.busiestDayOfWeek != "Unknown") {
+            Text("Your busiest day to spend money was", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(state.busiestDayOfWeek, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+        }
+    }
+}
+
+@Composable
 fun HeavyHitterPage(state: WrappedUiState) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -198,6 +224,43 @@ fun TopCategoriesPage(state: WrappedUiState) {
                 Divider(modifier = Modifier.padding(vertical = 4.dp))
             }
         }
+    }
+}
+
+@Composable
+fun SaverPage(state: WrappedUiState) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("The Saver", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Text("You had", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .clip(CircleShape)
+                .background(EmeraldGreen.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("${state.noSpendDays}", fontSize = 80.sp, fontWeight = FontWeight.ExtraBold, color = EmeraldGreen)
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("No-Spend Days!", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        val message = when {
+            state.noSpendDays > 15 -> "Absolutely incredible self-control! 🎉"
+            state.noSpendDays > 5 -> "Great job keeping your wallet closed! 👍"
+            state.noSpendDays > 0 -> "Every day counts. Keep it up! 💪"
+            else -> "It was a busy month for your wallet! 💸"
+        }
+        Text(message, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

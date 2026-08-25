@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,12 @@ import androidx.compose.ui.unit.sp
 import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.theme.CatSoftBlue
 import com.example.budgettracker.ui.theme.CatAmber
+import com.example.budgettracker.ui.theme.CatCoral
+import com.example.budgettracker.ui.theme.CatTeal
+import com.example.budgettracker.ui.theme.CatIndigo
+import com.example.budgettracker.ui.theme.CatPurple
+import com.example.budgettracker.ui.theme.OceanBlue
+import com.example.budgettracker.ui.theme.SunsetOrange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,7 +56,7 @@ fun WalletManagementScreen(
     var editName by remember { mutableStateOf("") }
     var editIncludeInTotal by remember { mutableStateOf(true) }
     
-    val colors = listOf(EmeraldGreen, CatSoftBlue, CatAmber)
+    val colors = listOf(EmeraldGreen, CatSoftBlue, CatAmber, CatCoral, CatTeal, CatIndigo, CatPurple, OceanBlue, SunsetOrange)
 
     Scaffold(
         topBar = {
@@ -94,8 +101,9 @@ fun WalletManagementScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text("Color")
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                    colors.forEachIndexed { index, color ->
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                    items(colors.size) { index ->
+                        val color = colors[index]
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
