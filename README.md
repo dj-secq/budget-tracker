@@ -1,64 +1,78 @@
-# Budget Tracker
-
-An offline budget tracker for Android. Amounts are Philippine pesos, stored as centavos on the phone. There is no account to sign in to, and the app does not ask for the internet.
-
-Version 4.0 · Android 7.0 and newer · [MIT](LICENSE)
-
-![Budget Tracker banner](docs/images/banner.png)
-
 <p align="center">
-  <img src="docs/images/home.png" width="250" alt="Home, with the balance, pace, and what is left after bills">
-  <img src="docs/images/wrapped.png" width="250" alt="Monthly wrapped, on the big picture page">
-  <img src="docs/images/settings.png" width="250" alt="Settings for theme, accent, and the daily reminder">
+  <img src="docs/readme/icon.png" width="96" alt="Budget Tracker">
 </p>
 
-<p align="center"><sub>These pictures are drawn to match the screens. They are not photos from a phone.</sub></p>
+<h1 align="center">Budget Tracker</h1>
 
-## What you can do
+<p align="center">
+  A budget for one person, on one Android phone.<br>
+  The ledger stays on the device, in Philippine pesos.<br>
+  There is no account and no cloud.
+</p>
 
-**Home.** The total is the wallets you include. Position adds what people owe you and subtracts what you owe. Left after bills runs from today through the end of the current month, and lists money still on the way by itself. Each budget row can say whether you are on pace, over pace, or under pace. Assign sets this month's base.
+<p align="center">
+  <img src="docs/readme/board.png" alt="Home, the transaction ledger, analytics, and two savings goals.">
+</p>
 
-**Caps.** A category cap is that month's base, plus rollover when rollover is on. A base of zero with rollover off means no cap. Strict limits start off. While they are off, going past a cap or a 50/30/20 bucket warns you and still offers Save anyway. Turn strict limits on in Settings to block that save.
+<p align="center">
+  Green is money in, room left, or a goal still open. Red is money out, or past the line.<br>
+  The pictures use the app’s type, colors, and layout, with a sample October filled in.
+</p>
 
-**Logging.** Record income and expenses, move money between wallets, or split one expense across categories. A receipt photo from the gallery is read on the device: the total fills the amount, and the merchant line fills the note. There is no in-app camera.
+Android 7.0 and later. This is version 4.0.
 
-**Repeat.** A rule can be daily, weekly, semi-monthly (the 15th and the last day), monthly, or yearly. Pause it, or give it an end date. A paused rule skips the dates it missed.
+## Home
 
-**Debts and goals.** A debt is either "they owe me" or "I owe them." Settling it posts the wallet rows. A goal is funded by moving money into a savings wallet, so the move stays out of spending unless you mark it as an expense.
+Home shows the total of the wallets you include, then Position. Position adds what is owed to you and subtracts what you owe. Left after bills runs from today through the end of the month. Money still on the way is listed, and it stays out of that figure.
 
-**The month in review.** Trends cover six months: cashflow columns, and a line for what was left after spending. Transfers stay out of both. The open month stays out of the average. Monthly wrapped walks through the month and can share a plain-text summary.
+Under the month are income, spending, and the net. A budget row shows what is left of the cap, and whether spending is on pace. Assign sets this month’s base. Unspent money can roll into the next month when rollover is on.
 
-**On this phone.** Light, dark, or follow the system. The accent is Emerald, Ocean, or Sunset. On Android 12 and newer, the phone's own colors can replace the accent. That switch starts off. A daily reminder can fire in the morning, the afternoon, or the evening. App lock uses this phone's PIN or biometrics. The next-bill widget reads the same local database, including while the lock is on.
+## Transactions
 
-A fresh install starts with Cash and Bank, and 25 categories with icons. It does not invent budget caps. If you already had categories, missing preset names are added once.
+The ledger groups rows by day. Search covers the note. A filter can narrow by category, wallet, or dates. Swipe a row to delete it, and tap a row to change it.
 
-## Files you can keep
+One expense can be split across categories. The parts are one purchase. Deleting one line removes the group.
 
-JSON backup is the full ledger: wallets, categories, transactions, limits, goals, debts, recurring rules, and preferences. Restoring it replaces what is on this phone. The backup leaves out the app lock. If an older file has no accent, phone-color switch, or reminder hour, those come back as Emerald, off, and evening.
+## Analytics
 
-CSV is separate. Export writes `date,wallet,category,type,amount,note,classification`. Import reads a file in that same shape and does not replace the JSON restore.
+Analytics opens on the 50/30/20 rule, then categories, then six months of cashflow and leftover. Transfers stay out of income and spending. The open month stays out of the average.
+
+Monthly wrapped is a few pages for that month. The last page shares a plain-text note.
+
+## Goals
+
+A goal shows what is saved against the target. Fund moves money into a savings wallet. That move is not spending unless you say it is.
+
+Debts sit on Home. One kind is money owed to you. The other is money you owe. Settling a debt posts the wallet rows.
+
+## Widget
+
+The home-screen widget shows the next bill still due this month. It reads the same ledger, including while the app lock is on.
+
+## Settings
+
+Settings cover light, dark, or the system theme, and an Emerald, Ocean, or Sunset accent. On Android 12 and newer, the phone’s own colors can replace the accent. That switch starts off. The daily reminder can be morning, afternoon, or evening. Strict limits start off, so an over-budget save warns you and still offers Save anyway.
+
+Backup is a JSON file you export yourself. Restoring it replaces the ledger on this phone. The lock setting stays on the phone. CSV is the transactions only, and that same file can be imported without replacing the backup.
+
+A fresh install starts with Cash, Bank, and 25 categories. It does not set a cap on any of them.
 
 ## Build
 
-JDK 11 and an Android SDK are enough.
+Requirements: Android Studio, JDK 11, and Android SDK 36.
+
+1. Open the project in Android Studio.
+2. Sync Gradle.
+3. Run the `app` configuration on a device or emulator.
 
 ```bash
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest
 ```
 
-The installable package for version 4.0 is on the [releases](https://github.com/dj-secq/budget-tracker/releases) page.
+The package for 4.0 is on the [releases](https://github.com/dj-secq/budget-tracker/releases) page.
 
-| | |
-| --- | --- |
-| Language | Kotlin |
-| UI | Jetpack Compose, Material 3 |
-| Storage | Room |
-| Charts | Vico |
-| Receipt text | ML Kit, on the device |
-| Background work | WorkManager |
-| minSdk / targetSdk | 24 / 36 |
+## In the repo
 
-## License
-
-[MIT](LICENSE). Copyright (c) 2026 dj-secq.
+- `app/` is the Android application.
+- `app/schemas/` is the Room history.
+- [LICENSE](LICENSE) is MIT. Copyright (c) 2026 dj-secq.
