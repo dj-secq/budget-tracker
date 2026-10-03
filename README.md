@@ -11,12 +11,12 @@
 </p>
 
 <p align="center">
-  <img src="docs/readme/board.png" alt="Home, the transaction ledger, analytics, and two savings goals.">
+  <img src="docs/readme/board.png" alt="Home, the transaction ledger, analytics, and two savings goals, in the dark theme.">
 </p>
 
 <p align="center">
   Green is money in, room left, or a goal still open. Red is money out, or past the line.<br>
-  The pictures use the app’s type, colors, and layout, with a sample October filled in.
+  The pictures use the app’s dark theme, with a sample October filled in.
 </p>
 
 Android 7.0 and later. This is version 4.0.
