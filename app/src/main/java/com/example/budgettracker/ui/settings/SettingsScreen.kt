@@ -427,7 +427,7 @@ fun SettingsScreen(
             // Check for Updates Card
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             Card(
-                onClick = { uriHandler.openUri("https://github.com/KatsuoSaito/BudgetTracker/releases") },
+                onClick = { uriHandler.openUri("https://github.com/dj-secq/budget-tracker/releases") },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(

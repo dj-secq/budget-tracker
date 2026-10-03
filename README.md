@@ -47,7 +47,7 @@ JDK 11 and an Android SDK are enough.
 ./gradlew :app:testDebugUnitTest
 ```
 
-The installable package for version 4.0 is on the [releases](https://github.com/KatsuoSaito/BudgetTracker/releases) page.
+The installable package for version 4.0 is on the [releases](https://github.com/dj-secq/budget-tracker/releases) page.
 
 | | |
 | --- | --- |
@@ -61,4 +61,4 @@ The installable package for version 4.0 is on the [releases](https://github.com/
 
 ## License
 
-[MIT](LICENSE). Copyright (c) 2023 dj-secq.
+[MIT](LICENSE). Copyright (c) 2026 dj-secq.
