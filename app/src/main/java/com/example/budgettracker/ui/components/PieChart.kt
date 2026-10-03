@@ -25,7 +25,7 @@ import kotlin.math.atan2
 
 data class PieChartData(
     val label: String,
-    val value: Double,
+    val value: Long,
     val color: Color
 )
 

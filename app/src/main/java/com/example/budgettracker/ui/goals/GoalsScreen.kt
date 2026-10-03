@@ -26,10 +26,20 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import com.example.budgettracker.R
 import com.example.budgettracker.data.local.entity.SavingsGoal
+import com.example.budgettracker.data.local.entity.countsAsExpense
+import com.example.budgettracker.domain.Money
+import com.example.budgettracker.domain.localDateFromPickerUtc
+import com.example.budgettracker.domain.localDateOf
+import com.example.budgettracker.domain.localNoon
 import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.utils.CurrencyUtils
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,11 +49,17 @@ fun GoalsScreen(
 ) {
     val goals by viewModel.goals.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
+    val categories by viewModel.categories.collectAsState()
+    val fundError by viewModel.fundError.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val expenseCategories = categories.filter { it.countsAsExpense() }
     
     var goalToFund by remember { mutableStateOf<SavingsGoal?>(null) }
     var fundAmount by remember { mutableStateOf("") }
     var selectedAccountId by remember { mutableStateOf<Long?>(null) }
+    var countAsSpending by remember { mutableStateOf(false) }
+    var spendCategoryId by remember { mutableStateOf<Long?>(null) }
+    var goalToUnfund by remember { mutableStateOf<SavingsGoal?>(null) }
     
     var goalToDelete by remember { mutableStateOf<SavingsGoal?>(null) }
     var goalToEdit by remember { mutableStateOf<SavingsGoal?>(null) }
@@ -59,6 +75,9 @@ fun GoalsScreen(
     var newGoalFrequency by remember { mutableStateOf("") }
     var newGoalContribution by remember { mutableStateOf("") }
     var newGoalEmoji by remember { mutableStateOf("🎯") }
+    var newGoalDate by remember { mutableStateOf<Long?>(null) }
+    var editGoalDate by remember { mutableStateOf<Long?>(null) }
+    var pickingDate by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -73,7 +92,7 @@ fun GoalsScreen(
                 onClick = { showAddGoalDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add Goal")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_goal))
             }
         }
     ) { innerPadding ->
@@ -89,13 +108,14 @@ fun GoalsScreen(
             if (goals.isEmpty()) {
                 item {
                     Text(
-                        "No goals yet. Add one to start saving!", 
+                        stringResource(R.string.no_goals), 
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 16.dp)
                     )
                 }
             } else {
-                items(goals) { goal ->
+                items(goals, key = { it.goal.id }) { progress ->
+                    val goal = progress.goal
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = {
                             if (it == SwipeToDismissBoxValue.EndToStart) {
@@ -120,25 +140,30 @@ fun GoalsScreen(
                                 contentAlignment = Alignment.CenterEnd
                             ) {
                                 if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = androidx.compose.ui.graphics.Color.White)
+                                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete_button), tint = androidx.compose.ui.graphics.Color.White)
                                 }
                             }
                         }
                     ) {
                         GoalCard(
                             goal = goal,
-                            onFundClick = { 
-                                goalToFund = goal 
-                                fundAmount = goal.contributionAmount?.let { if (it > 0) it.toString() else "" } ?: ""
+                            savedCentavos = progress.savedCentavos,
+                            onFundClick = {
+                                goalToFund = goal
+                                fundAmount = goal.contributionAmount?.let { if (it > 0L) Money.toInputString(it) else "" } ?: ""
+                                countAsSpending = false
+                                spendCategoryId = null
                             },
                             onEditClick = {
                                 goalToEdit = goal
                                 editGoalName = goal.name
-                                editGoalAmount = goal.targetAmount.toString()
+                                editGoalAmount = Money.toInputString(goal.targetAmount)
                                 editGoalFrequency = goal.contributionFrequency ?: ""
-                                editGoalContribution = goal.contributionAmount?.toString() ?: ""
+                                editGoalContribution = goal.contributionAmount?.let { Money.toInputString(it) } ?: ""
                                 editGoalEmoji = goal.iconName ?: "🎯"
-                            }
+                                editGoalDate = goal.targetDate
+                            },
+                            onUnfundClick = { goalToUnfund = goal }
                         )
                     }
                 }
@@ -155,27 +180,27 @@ fun GoalsScreen(
                     newGoalFrequency = ""
                     newGoalContribution = ""
                 },
-                title = { Text("Add Savings Goal") },
+                title = { Text(stringResource(R.string.add_savings_goal)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = newGoalEmoji,
                                 onValueChange = { newGoalEmoji = it.take(2) },
-                                label = { Text("Icon") },
+                                label = { Text(stringResource(R.string.icon)) },
                                 modifier = Modifier.weight(0.25f)
                             )
                             OutlinedTextField(
                                 value = newGoalName,
                                 onValueChange = { newGoalName = it },
-                                label = { Text("Goal Name") },
+                                label = { Text(stringResource(R.string.goal_name)) },
                                 modifier = Modifier.weight(0.75f)
                             )
                         }
                         OutlinedTextField(
                             value = newGoalAmount,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) newGoalAmount = it },
-                            label = { Text("Target Amount") },
+                            label = { Text(stringResource(R.string.target_amount)) },
                             prefix = { Text("₱") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
@@ -183,29 +208,33 @@ fun GoalsScreen(
                         OutlinedTextField(
                             value = newGoalFrequency,
                             onValueChange = { newGoalFrequency = it },
-                            label = { Text("Frequency (e.g. Weekly, Monthly)") },
+                            label = { Text(stringResource(R.string.frequency_example)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = newGoalContribution,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) newGoalContribution = it },
-                            label = { Text("Contribution Amount (Optional)") },
+                            label = { Text(stringResource(R.string.contribution_optional)) },
                             prefix = { Text("₱") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        TextButton(onClick = { pickingDate = "new" }) {
+                            Text(newGoalDate?.let { stringResource(R.string.target_on, goalDay(it)) } ?: stringResource(R.string.set_target_date))
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val amount = newGoalAmount.toDoubleOrNull()
-                            val contrib = newGoalContribution.toDoubleOrNull()
-                            if (newGoalName.isNotBlank() && amount != null && amount > 0) {
+                            val amount = Money.parsePesos(newGoalAmount)
+                            val contrib = if (newGoalContribution.isBlank()) null else Money.parsePesos(newGoalContribution)
+                            if (newGoalName.isNotBlank() && amount != null && amount > 0L && (newGoalContribution.isBlank() || contrib != null)) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.addGoal(
-                                    name = newGoalName, 
-                                    targetAmount = amount, 
+                                    name = newGoalName,
+                                    targetAmount = amount,
+                                    targetDate = newGoalDate,
                                     frequency = newGoalFrequency.takeIf { it.isNotBlank() },
                                     contributionAmount = contrib,
                                     iconName = newGoalEmoji.takeIf { it.isNotBlank() }
@@ -215,11 +244,12 @@ fun GoalsScreen(
                                 newGoalAmount = ""
                                 newGoalFrequency = ""
                                 newGoalContribution = ""
+                                newGoalDate = null
                             }
                         },
                         enabled = newGoalName.isNotBlank() && newGoalAmount.isNotBlank()
                     ) {
-                        Text("Save", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.save), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -230,7 +260,7 @@ fun GoalsScreen(
                         newGoalFrequency = ""
                         newGoalContribution = ""
                     }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.cancel_button))
                     }
                 }
             )
@@ -244,21 +274,21 @@ fun GoalsScreen(
                     fundAmount = ""
                     selectedAccountId = null
                 },
-                title = { Text("Fund ${goal.name}") },
+                title = { Text(stringResource(R.string.fund_title, goal.name)) },
                 text = {
                     Column {
-                        Text("How much would you like to contribute to this goal?")
+                        Text(stringResource(R.string.fund_help))
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedTextField(
                             value = fundAmount,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) fundAmount = it },
-                            label = { Text("Amount") },
+                            label = { Text(stringResource(R.string.amount_label)) },
                             prefix = { Text("₱") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("From Account", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.from_account), fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(8.dp))
                         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(accounts) { account ->
@@ -270,23 +300,43 @@ fun GoalsScreen(
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.count_as_spending), modifier = Modifier.weight(1f))
+                            Switch(checked = countAsSpending, onCheckedChange = { countAsSpending = it })
+                        }
+                        if (countAsSpending) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(expenseCategories) { category ->
+                                    FilterChip(
+                                        selected = spendCategoryId == category.id,
+                                        onClick = { spendCategoryId = category.id },
+                                        label = { Text(category.name) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val amount = fundAmount.toDoubleOrNull()
-                            if (amount != null && amount > 0 && selectedAccountId != null) {
+                            val amount = Money.parsePesos(fundAmount)
+                            val spend = if (countAsSpending) spendCategoryId else null
+                            if (amount != null && amount > 0L && selectedAccountId != null && (!countAsSpending || spend != null)) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.fundGoal(goal, amount, selectedAccountId!!)
+                                viewModel.fundGoal(goal, amount, selectedAccountId!!, spend)
                                 goalToFund = null
                                 fundAmount = ""
                                 selectedAccountId = null
+                                countAsSpending = false
+                                spendCategoryId = null
                             }
                         },
-                        enabled = fundAmount.isNotEmpty() && selectedAccountId != null
+                        enabled = fundAmount.isNotEmpty() && selectedAccountId != null && (!countAsSpending || spendCategoryId != null)
                     ) {
-                        Text("Fund", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.fund), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -295,7 +345,7 @@ fun GoalsScreen(
                         fundAmount = ""
                         selectedAccountId = null
                     }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.cancel_button))
                     }
                 }
             )
@@ -333,27 +383,27 @@ fun GoalsScreen(
                 onDismissRequest = { 
                     goalToEdit = null
                 },
-                title = { Text("Edit Savings Goal") },
+                title = { Text(stringResource(R.string.edit_savings_goal)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = editGoalEmoji,
                                 onValueChange = { editGoalEmoji = it.take(2) },
-                                label = { Text("Icon") },
+                                label = { Text(stringResource(R.string.icon)) },
                                 modifier = Modifier.weight(0.25f)
                             )
                             OutlinedTextField(
                                 value = editGoalName,
                                 onValueChange = { editGoalName = it },
-                                label = { Text("Goal Name") },
+                                label = { Text(stringResource(R.string.goal_name)) },
                                 modifier = Modifier.weight(0.75f)
                             )
                         }
                         OutlinedTextField(
                             value = editGoalAmount,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) editGoalAmount = it },
-                            label = { Text("Target Amount") },
+                            label = { Text(stringResource(R.string.target_amount)) },
                             prefix = { Text("₱") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
@@ -361,31 +411,37 @@ fun GoalsScreen(
                         OutlinedTextField(
                             value = editGoalFrequency,
                             onValueChange = { editGoalFrequency = it },
-                            label = { Text("Frequency (e.g. Weekly, Monthly)") },
+                            label = { Text(stringResource(R.string.frequency_example)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = editGoalContribution,
                             onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) editGoalContribution = it },
-                            label = { Text("Contribution Amount (Optional)") },
+                            label = { Text(stringResource(R.string.contribution_optional)) },
                             prefix = { Text("₱") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        TextButton(onClick = { pickingDate = "edit" }) {
+                            Text(editGoalDate?.let { stringResource(R.string.target_on, goalDay(it)) } ?: stringResource(R.string.set_target_date))
+                        }
+                        if (editGoalDate != null) {
+                            TextButton(onClick = { editGoalDate = null }) { Text(stringResource(R.string.clear_target_date)) }
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val amount = editGoalAmount.toDoubleOrNull()
-                            val contrib = editGoalContribution.toDoubleOrNull()
-                            if (editGoalName.isNotBlank() && amount != null && amount > 0) {
+                            val amount = Money.parsePesos(editGoalAmount)
+                            val contrib = if (editGoalContribution.isBlank()) null else Money.parsePesos(editGoalContribution)
+                            if (editGoalName.isNotBlank() && amount != null && amount > 0L && (editGoalContribution.isBlank() || contrib != null)) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.updateGoal(
                                     goal = goal,
                                     name = editGoalName,
                                     targetAmount = amount,
-                                    targetDate = goal.targetDate,
+                                    targetDate = editGoalDate,
                                     frequency = editGoalFrequency.takeIf { it.isNotBlank() },
                                     contributionAmount = contrib,
                                     iconName = editGoalEmoji.takeIf { it.isNotBlank() }
@@ -395,29 +451,89 @@ fun GoalsScreen(
                         },
                         enabled = editGoalName.isNotBlank() && editGoalAmount.isNotBlank()
                     ) {
-                        Text("Save", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.save), fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { goalToEdit = null }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.cancel_button))
                     }
                 }
             )
         }
+
+        goalToUnfund?.let { goal ->
+            AlertDialog(
+                onDismissRequest = { goalToUnfund = null },
+                title = { Text(stringResource(R.string.remove_contribution_title)) },
+                text = { Text(stringResource(R.string.remove_contribution_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.unfundLatest(goal)
+                        goalToUnfund = null
+                    }) { Text(stringResource(R.string.remove)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { goalToUnfund = null }) { Text(stringResource(R.string.cancel_button)) }
+                }
+            )
+        }
+
+        fundError?.let { message ->
+            AlertDialog(
+                onDismissRequest = { viewModel.clearFundError() },
+                title = { Text(stringResource(R.string.fund_failed)) },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearFundError() }) { Text(stringResource(R.string.ok)) }
+                }
+            )
+        }
+
+        if (pickingDate != null) {
+            val pickerState = rememberDatePickerState()
+            DatePickerDialog(
+                onDismissRequest = { pickingDate = null },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pickerState.selectedDateMillis?.let { selected ->
+                            val noon = localNoon(localDateFromPickerUtc(selected))
+                            if (pickingDate == "edit") editGoalDate = noon else newGoalDate = noon
+                        }
+                        pickingDate = null
+                    }) { Text(stringResource(R.string.ok)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pickingDate = null }) { Text(stringResource(R.string.cancel_button)) }
+                }
+            ) {
+                DatePicker(state = pickerState)
+            }
+        }
     }
 }
+
+private val goalDayFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
+
+private fun goalDay(millis: Long): String = localDateOf(millis).format(goalDayFormat)
 
 @Composable
 fun GoalCard(
     goal: SavingsGoal,
+    savedCentavos: Long,
     onFundClick: () -> Unit,
-    onEditClick: () -> Unit
+    onEditClick: () -> Unit,
+    onUnfundClick: () -> Unit
 ) {
-    val progress = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
+    val progress = if (goal.targetAmount > 0L) {
+        (savedCentavos.toDouble() / goal.targetAmount.toDouble()).toFloat().coerceIn(0f, 1f)
+    } else {
+        0f
+    }
     val isComplete = progress >= 1f
+    val percentLabel = stringResource(R.string.progress_percent, (progress * 100).toInt())
     
-    val needsAction = !isComplete && (goal.contributionAmount ?: 0.0) > 0.0 && !goal.contributionFrequency.isNullOrBlank()
+    val needsAction = !isComplete && (goal.contributionAmount ?: 0L) > 0L && !goal.contributionFrequency.isNullOrBlank()
     
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -438,14 +554,19 @@ fun GoalCard(
                     ) {
                         CircularProgressIndicator(
                             progress = { progress },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .semantics {
+                                    progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
+                                    contentDescription = percentLabel
+                                },
                             color = if (isComplete) Color(0xFFFFD700) else EmeraldGreen,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             strokeWidth = 6.dp
                         )
                         Text(
                             text = goal.iconName ?: "🎯",
-                            fontSize = 24.sp
+                            style = MaterialTheme.typography.headlineSmall
                         )
                     }
                     
@@ -455,9 +576,16 @@ fun GoalCard(
                         Text(
                             text = goal.name,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                        goal.targetDate?.let { date ->
+                            Text(
+                                text = stringResource(R.string.by_date, goalDay(date)),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (needsAction) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Surface(
@@ -465,9 +593,13 @@ fun GoalCard(
                                 shape = RoundedCornerShape(4.dp)
                             ) {
                                 Text(
-                                    text = "Due: ${CurrencyUtils.formatAmount(goal.contributionAmount!!)} / ${goal.contributionFrequency}",
+                                    text = stringResource(
+                                        R.string.due_contribution,
+                                        CurrencyUtils.formatAmount(goal.contributionAmount!!),
+                                        goal.contributionFrequency ?: ""
+                                    ),
                                     color = MaterialTheme.colorScheme.onErrorContainer,
-                                    fontSize = 10.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
@@ -475,17 +607,21 @@ fun GoalCard(
                         } else if (isComplete) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Goal Reached! 🎉",
+                                text = stringResource(R.string.goal_reached),
                                 color = Color(0xFFD4AF37),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         } else if (goal.contributionAmount != null) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "${CurrencyUtils.formatAmount(goal.contributionAmount)} / ${goal.contributionFrequency}",
+                                text = stringResource(
+                                    R.string.contribution_plan,
+                                    CurrencyUtils.formatAmount(goal.contributionAmount ?: 0L),
+                                    goal.contributionFrequency ?: ""
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
+                                style = MaterialTheme.typography.labelMedium
                             )
                         }
                     }
@@ -493,7 +629,7 @@ fun GoalCard(
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onEditClick) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit Goal", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_goal), tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -507,25 +643,30 @@ fun GoalCard(
             ) {
                 Column {
                     Text(
-                        text = CurrencyUtils.formatAmount(goal.currentAmount),
+                        text = CurrencyUtils.formatAmount(savedCentavos),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = if (isComplete) Color(0xFFD4AF37) else EmeraldGreen
                     )
                     Text(
-                        text = "of ${CurrencyUtils.formatAmount(goal.targetAmount)}",
-                        fontSize = 12.sp,
+                        text = stringResource(R.string.of_target, CurrencyUtils.formatAmount(goal.targetAmount)),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 
-                if (!isComplete) {
-                    Button(
-                        onClick = onFundClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("Fund Goal", color = Color.White, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (savedCentavos > 0L) {
+                        TextButton(onClick = onUnfundClick) { Text(stringResource(R.string.unfund)) }
+                    }
+                    if (!isComplete) {
+                        Button(
+                            onClick = onFundClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(stringResource(R.string.fund_goal), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

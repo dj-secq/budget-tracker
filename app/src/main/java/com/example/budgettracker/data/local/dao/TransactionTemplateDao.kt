@@ -13,9 +13,18 @@ interface TransactionTemplateDao {
     @Query("SELECT * FROM transaction_templates ORDER BY templateName ASC")
     fun getAllTemplates(): Flow<List<TransactionTemplate>>
 
+    @Query("SELECT * FROM transaction_templates")
+    suspend fun listAll(): List<TransactionTemplate>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTemplate(template: TransactionTemplate): Long
 
     @Delete
     suspend fun deleteTemplate(template: TransactionTemplate)
+
+    @Query("SELECT COUNT(*) FROM transaction_templates WHERE accountId = :accountId")
+    suspend fun countByAccount(accountId: Long): Int
+
+    @Query("DELETE FROM transaction_templates")
+    suspend fun deleteAll()
 }

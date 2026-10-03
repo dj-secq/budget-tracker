@@ -1,22 +1,18 @@
 package com.example.budgettracker.ui.settings
 
-import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-
-
 import com.example.budgettracker.data.local.entity.Account
 import com.example.budgettracker.data.local.entity.AccountType
-import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.data.repository.DeleteOutcome
+import com.example.budgettracker.ui.theme.WalletPalette
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import com.example.budgettracker.ui.theme.EmeraldGreen
-import com.example.budgettracker.ui.theme.CatSoftBlue
-import com.example.budgettracker.ui.theme.CatAmber
-
 
 class WalletManagementViewModel(
     private val repository: BudgetRepository
@@ -25,32 +21,41 @@ class WalletManagementViewModel(
     val accounts: StateFlow<List<Account>> = repository.getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun addWallet(name: String, startingBalance: Double, colorIndex: Int, includeInTotalBalance: Boolean = true) {
+    private val _deleteBlocked = MutableStateFlow(false)
+    val deleteBlocked: StateFlow<Boolean> = _deleteBlocked.asStateFlow()
+
+    fun clearDeleteBlocked() {
+        _deleteBlocked.value = false
+    }
+
+    fun addWallet(name: String, startingBalance: Long, colorIndex: Int, includeInTotalBalance: Boolean = true) {
+        if (name.isBlank()) return
         viewModelScope.launch {
-            val colors = listOf(EmeraldGreen.toArgb(), CatSoftBlue.toArgb(), CatAmber.toArgb())
-            val color = colors[colorIndex % colors.size]
-            val account = Account(
-                name = name,
-                type = AccountType.CHECKING,
-                balance = startingBalance,
-                colorArgb = color,
-                includeInTotalBalance = includeInTotalBalance
+            repository.insertAccount(
+                Account(
+                    name = name.trim(),
+                    type = AccountType.CHECKING,
+                    balance = startingBalance,
+                    colorArgb = WalletPalette.argbAt(colorIndex),
+                    includeInTotalBalance = includeInTotalBalance
+                )
             )
-            repository.insertAccount(account)
-            // Note: If startingBalance > 0, we should arguably create an initial transaction, 
-            // but for simplicity we just set the balance.
         }
     }
 
     fun deleteWallet(account: Account) {
         viewModelScope.launch {
-            repository.deleteAccount(account)
+            when (repository.deleteAccount(account)) {
+                DeleteOutcome.Deleted -> Unit
+                DeleteOutcome.Blocked -> _deleteBlocked.value = true
+            }
         }
     }
 
     fun updateWallet(account: Account, newName: String, includeInTotalBalance: Boolean) {
+        if (newName.isBlank()) return
         viewModelScope.launch {
-            repository.updateAccount(account.copy(name = newName, includeInTotalBalance = includeInTotalBalance))
+            repository.updateAccount(account.copy(name = newName.trim(), includeInTotalBalance = includeInTotalBalance))
         }
     }
 }

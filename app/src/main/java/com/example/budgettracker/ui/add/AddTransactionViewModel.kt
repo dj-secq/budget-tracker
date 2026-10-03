@@ -2,8 +2,6 @@ package com.example.budgettracker.ui.add
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-
-
 import com.example.budgettracker.data.local.entity.Account
 import com.example.budgettracker.data.local.entity.Category
 import com.example.budgettracker.data.local.entity.CategoryType
@@ -14,14 +12,15 @@ import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.local.entity.TransactionTemplate
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.data.repository.UserPreferencesRepository
+import com.example.budgettracker.domain.advanceOccurrence
+import com.example.budgettracker.domain.localDateOf
+import com.example.budgettracker.data.local.entity.countsAsExpense
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Calendar
-
 
 class AddTransactionViewModel(
     private val repository: BudgetRepository,
@@ -37,14 +36,17 @@ class AddTransactionViewModel(
     val templates: StateFlow<List<TransactionTemplate>> = repository.getAllTemplates()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val lastAccountId: StateFlow<Long?> = preferencesRepository.lastAccountIdFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val isSaving = MutableStateFlow(false)
-    val showOverBudgetWarning = MutableStateFlow<Pair<Double, Boolean>?>(null) // category limit exceeded by, isStrict
-    val showBucketWarning = MutableStateFlow<Pair<String, Double>?>(null) // bucket name and amount exceeded by
+    val showOverBudgetWarning = MutableStateFlow<Pair<Long, Boolean>?>(null)
+    val showBucketWarning = MutableStateFlow<Triple<String, Long, Boolean>?>(null)
 
     fun onConfirmSave(
         accountId: Long,
         categoryId: Long,
-        amount: Double,
+        amount: Long,
         note: String,
         timestamp: Long,
         classification: ExpenseClassification,
@@ -52,60 +54,47 @@ class AddTransactionViewModel(
         recurringFrequency: Frequency? = null,
         onComplete: () -> Unit
     ) {
+        if (isSaving.value || amount <= 0L) return
+        isSaving.value = true
         viewModelScope.launch {
-            val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
-            val month = calendar.get(Calendar.MONTH) + 1
-            val year = calendar.get(Calendar.YEAR)
-            
-            // 1. Check Category Limit
-            val limits = repository.getBudgetLimitsForMonth(month, year).first()
-            var limit = limits.find { it.categoryId == categoryId }?.assignedAmount ?: 0.0
-            val prefs = preferencesRepository.generalPreferencesFlow.first()
-            
-            if (limit > 0) {
-                if (prefs.rolloverBudgetsEnabled) {
-                    limit += repository.getRolloverAmount(categoryId, month, year)
-                }
-                val spent = repository.getTotalSpentByCategory(categoryId, month, year).first() ?: 0.0
-                if (spent + amount > limit) {
-                    showOverBudgetWarning.value = Pair((spent + amount) - limit, prefs.strictLimitsEnabled)
+            try {
+                val prefs = preferencesRepository.generalPreferencesFlow.first()
+                val rule = preferencesRepository.budgetRulePreferencesFlow.first()
+                val evaluation = repository.evaluateSpend(
+                    categoryId = categoryId,
+                    amount = amount,
+                    timestamp = timestamp,
+                    classification = classification,
+                    strict = prefs.strictLimitsEnabled,
+                    rolloverEnabled = prefs.rolloverBudgetsEnabled,
+                    needsPercent = rule.needsPercent,
+                    wantsPercent = rule.wantsPercent,
+                    savingsPercent = rule.savingsPercent
+                )
+                if (evaluation.categoryExceeded) {
+                    showOverBudgetWarning.value = evaluation.categoryExcess to prefs.strictLimitsEnabled
                     return@launch
                 }
-            }
-
-            // 2. Check Bucket Limit (Needs/Wants/Savings)
-            if (classification != ExpenseClassification.NONE) {
-                val transactions = repository.getTransactionsForMonth(month, year).first()
-                val categories = repository.getAllCategories().first()
-                val incomeCategories = categories.filter { it.type == CategoryType.INCOME }
-                val totalIncome = transactions.filter { tx -> incomeCategories.any { it.id == tx.categoryId } }.sumOf { it.amount }
-                
-                if (totalIncome > 0) {
-                    val rule = preferencesRepository.budgetRulePreferencesFlow.first()
-                    val bucketPercent = when (classification) {
-                        ExpenseClassification.NEED -> rule.needsPercent
-                        ExpenseClassification.WANT -> rule.wantsPercent
-                        ExpenseClassification.SAVING -> rule.savingsPercent
-                        else -> 0
-                    }
-                    val bucketLimit = totalIncome * (bucketPercent / 100.0)
-                    val bucketSpent = transactions.filter { it.classification == classification }.sumOf { it.amount }
-                    
-                    if (bucketSpent + amount > bucketLimit) {
-                        showBucketWarning.value = Pair(classification.name, (bucketSpent + amount) - bucketLimit)
-                        return@launch
-                    }
+                if (evaluation.bucketExceeded) {
+                    showBucketWarning.value = Triple(
+                        evaluation.bucketName ?: "Budget",
+                        evaluation.bucketExcess,
+                        prefs.strictLimitsEnabled
+                    )
+                    return@launch
                 }
+                persist(accountId, categoryId, amount, note, timestamp, classification, isRecurring, recurringFrequency)
+                onComplete()
+            } finally {
+                isSaving.value = false
             }
-            
-            saveTransaction(accountId, categoryId, amount, note, timestamp, classification, isRecurring, recurringFrequency, onComplete)
         }
     }
 
     fun saveTransaction(
         accountId: Long,
         categoryId: Long,
-        amount: Double,
+        amount: Long,
         note: String,
         timestamp: Long = System.currentTimeMillis(),
         classification: ExpenseClassification = ExpenseClassification.NONE,
@@ -113,91 +102,161 @@ class AddTransactionViewModel(
         recurringFrequency: Frequency? = null,
         onComplete: () -> Unit
     ) {
+        if (isSaving.value || amount <= 0L) return
+        isSaving.value = true
         viewModelScope.launch {
-            isSaving.value = true
-            val transaction = Transaction(
+            try {
+                persist(accountId, categoryId, amount, note, timestamp, classification, isRecurring, recurringFrequency)
+                onComplete()
+            } finally {
+                isSaving.value = false
+            }
+        }
+    }
+
+    private suspend fun persist(
+        accountId: Long,
+        categoryId: Long,
+        amount: Long,
+        note: String,
+        timestamp: Long,
+        classification: ExpenseClassification,
+        isRecurring: Boolean,
+        recurringFrequency: Frequency?
+    ) {
+        val recurring = if (isRecurring && recurringFrequency != null) {
+            val anchor = localDateOf(timestamp).dayOfMonth
+            RecurringTransaction(
+                accountId = accountId,
+                categoryId = categoryId,
+                amount = amount,
+                note = note,
+                classification = classification,
+                frequency = recurringFrequency,
+                startDate = timestamp,
+                nextRunTime = advanceOccurrence(timestamp, recurringFrequency.toInterval(), anchor),
+                anchorDay = anchor
+            )
+        } else {
+            null
+        }
+        repository.saveTransaction(
+            Transaction(
                 accountId = accountId,
                 categoryId = categoryId,
                 amount = amount,
                 note = note,
                 timestamp = timestamp,
                 classification = classification
-            )
-            repository.insertTransaction(transaction)
-            
-            if (isRecurring && recurringFrequency != null) {
-                // Calculate next run time
-                val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
-                when (recurringFrequency) {
-                    Frequency.DAILY -> calendar.add(Calendar.DAY_OF_YEAR, 1)
-                    Frequency.WEEKLY -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
-                    Frequency.MONTHLY -> calendar.add(Calendar.MONTH, 1)
-                    Frequency.YEARLY -> calendar.add(Calendar.YEAR, 1)
-                }
-                
-                val recurring = RecurringTransaction(
-                    accountId = accountId,
-                    categoryId = categoryId,
-                    amount = amount,
-                    note = note,
-                    classification = classification,
-                    frequency = recurringFrequency,
-                    startDate = timestamp,
-                    nextRunTime = calendar.timeInMillis
-                )
-                repository.insertRecurringTransaction(recurring)
-            }
-            
-            isSaving.value = false
-            onComplete()
-        }
+            ),
+            recurring
+        )
+        preferencesRepository.setLastAccountId(accountId)
     }
 
     fun saveTransfer(
         fromAccountId: Long,
         toAccountId: Long,
-        amount: Double,
+        amount: Long,
         note: String,
         timestamp: Long = System.currentTimeMillis(),
         onComplete: () -> Unit
     ) {
+        if (isSaving.value || amount <= 0L) return
+        isSaving.value = true
         viewModelScope.launch {
-            isSaving.value = true
-            
-            val allCategories = repository.getAllCategories().first()
-            var transferOutCat = allCategories.find { it.name == "Withdraw / Transfer Out" && it.type == CategoryType.EXPENSE }
-            if (transferOutCat == null) {
-                val id = repository.insertCategory(Category(name = "Withdraw / Transfer Out", type = CategoryType.EXPENSE, colorArgb = 0xFFF44336.toInt()))
-                transferOutCat = Category(id = id, name = "Withdraw / Transfer Out", type = CategoryType.EXPENSE, colorArgb = 0xFFF44336.toInt())
+            try {
+                repository.insertTransfer(fromAccountId, toAccountId, amount, note, timestamp)
+                preferencesRepository.setLastAccountId(fromAccountId)
+                onComplete()
+            } finally {
+                isSaving.value = false
             }
-            
-            var transferInCat = allCategories.find { it.name == "Deposit / Transfer In" && it.type == CategoryType.INCOME }
-            if (transferInCat == null) {
-                val id = repository.insertCategory(Category(name = "Deposit / Transfer In", type = CategoryType.INCOME, colorArgb = 0xFF4CAF50.toInt()))
-                transferInCat = Category(id = id, name = "Deposit / Transfer In", type = CategoryType.INCOME, colorArgb = 0xFF4CAF50.toInt())
+        }
+    }
+
+    fun onConfirmSplit(
+        accountId: Long,
+        parts: List<Pair<Long, Long>>,
+        note: String,
+        timestamp: Long,
+        classification: ExpenseClassification,
+        onComplete: () -> Unit
+    ) {
+        val total = parts.sumOf { it.second }
+        if (isSaving.value || total <= 0L || parts.size < 2) return
+        isSaving.value = true
+        viewModelScope.launch {
+            try {
+                val prefs = preferencesRepository.generalPreferencesFlow.first()
+                val rule = preferencesRepository.budgetRulePreferencesFlow.first()
+                val byCategory = parts.groupBy { it.first }.mapValues { entry -> entry.value.sumOf { it.second } }
+                for ((categoryId, amount) in byCategory) {
+                    val category = categories.value.find { it.id == categoryId }
+                    if (category == null || !category.countsAsExpense()) return@launch
+                    val evaluation = repository.evaluateSpend(
+                        categoryId = categoryId,
+                        amount = amount,
+                        timestamp = timestamp,
+                        classification = classification,
+                        strict = prefs.strictLimitsEnabled,
+                        rolloverEnabled = prefs.rolloverBudgetsEnabled,
+                        needsPercent = rule.needsPercent,
+                        wantsPercent = rule.wantsPercent,
+                        savingsPercent = rule.savingsPercent
+                    )
+                    if (evaluation.categoryExceeded) {
+                        showOverBudgetWarning.value = evaluation.categoryExcess to prefs.strictLimitsEnabled
+                        return@launch
+                    }
+                }
+                val bucket = repository.evaluateSpend(
+                    categoryId = parts.first().first,
+                    amount = total,
+                    timestamp = timestamp,
+                    classification = classification,
+                    strict = prefs.strictLimitsEnabled,
+                    rolloverEnabled = prefs.rolloverBudgetsEnabled,
+                    needsPercent = rule.needsPercent,
+                    wantsPercent = rule.wantsPercent,
+                    savingsPercent = rule.savingsPercent
+                )
+                if (bucket.bucketExceeded) {
+                    showBucketWarning.value = Triple(
+                        bucket.bucketName ?: "Budget",
+                        bucket.bucketExcess,
+                        prefs.strictLimitsEnabled
+                    )
+                    return@launch
+                }
+                repository.saveSplit(accountId, parts, note, timestamp, classification)
+                preferencesRepository.setLastAccountId(accountId)
+                onComplete()
+            } finally {
+                isSaving.value = false
             }
-            
-            val txOut = Transaction(
-                accountId = fromAccountId,
-                categoryId = transferOutCat.id,
-                amount = amount,
-                note = if (note.isBlank()) "Transfer to another wallet" else note,
-                timestamp = timestamp,
-                classification = ExpenseClassification.NONE
-            )
-            
-            val txIn = Transaction(
-                accountId = toAccountId,
-                categoryId = transferInCat.id,
-                amount = amount,
-                note = if (note.isBlank()) "Transfer from another wallet" else note,
-                timestamp = timestamp,
-                classification = ExpenseClassification.NONE
-            )
-            
-            repository.insertTransfer(txOut, txIn)
-            isSaving.value = false
-            onComplete()
+        }
+    }
+
+    fun saveSplit(
+        accountId: Long,
+        parts: List<Pair<Long, Long>>,
+        note: String,
+        timestamp: Long,
+        classification: ExpenseClassification,
+        onComplete: () -> Unit
+    ) {
+        val total = parts.sumOf { it.second }
+        if (isSaving.value || total <= 0L || parts.size < 2) return
+        isSaving.value = true
+        viewModelScope.launch {
+            try {
+                repository.saveSplit(accountId, parts, note, timestamp, classification)
+                preferencesRepository.setLastAccountId(accountId)
+                onComplete()
+            } finally {
+                isSaving.value = false
+            }
         }
     }
 
@@ -212,24 +271,26 @@ class AddTransactionViewModel(
 
     fun saveTemplate(
         templateName: String,
-        amount: Double,
+        amount: Long,
         categoryId: Long,
         accountId: Long,
         note: String,
         transactionType: CategoryType,
         classification: ExpenseClassification
     ) {
+        if (amount <= 0L || templateName.isBlank()) return
         viewModelScope.launch {
-            val template = TransactionTemplate(
-                templateName = templateName,
-                amount = amount,
-                categoryId = categoryId,
-                accountId = accountId,
-                note = note,
-                transactionType = transactionType,
-                classification = classification
+            repository.insertTemplate(
+                TransactionTemplate(
+                    templateName = templateName.trim(),
+                    amount = amount,
+                    categoryId = categoryId,
+                    accountId = accountId,
+                    note = note,
+                    transactionType = transactionType,
+                    classification = classification
+                )
             )
-            repository.insertTemplate(template)
         }
     }
 

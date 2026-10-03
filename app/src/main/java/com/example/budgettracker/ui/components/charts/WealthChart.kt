@@ -11,12 +11,15 @@ import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.Chart
 import com.patrykandpatrick.vico.compose.chart.line.lineChart
+import com.patrykandpatrick.vico.core.axis.AxisPosition
+import com.patrykandpatrick.vico.core.axis.formatter.AxisValueFormatter
 import com.patrykandpatrick.vico.core.entry.FloatEntry
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 
 @Composable
 fun WealthChart(
     dataPoints: List<Float>,
+    monthLabels: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     if (dataPoints.isEmpty()) return
@@ -27,12 +30,20 @@ fun WealthChart(
     }
     
     val chartEntryModel = remember(dataPoints) { entryModelOf(entries) }
+    val formatter = remember(monthLabels) {
+        AxisValueFormatter<AxisPosition.Horizontal.Bottom> { value, _ ->
+            monthLabels.getOrNull(value.toInt()) ?: value.toInt().toString()
+        }
+    }
+    val pesoAxis = remember {
+        AxisValueFormatter<AxisPosition.Vertical.Start> { value, _ -> wholePesoLabel(value) }
+    }
 
     Chart(
         chart = lineChart(),
         model = chartEntryModel,
-        startAxis = rememberStartAxis(),
-        bottomAxis = rememberBottomAxis(),
+        startAxis = rememberStartAxis(valueFormatter = pesoAxis),
+        bottomAxis = rememberBottomAxis(valueFormatter = formatter),
         modifier = modifier
             .fillMaxWidth()
             .height(200.dp)

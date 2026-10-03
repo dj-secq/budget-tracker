@@ -2,6 +2,7 @@ package com.example.budgettracker.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
@@ -17,15 +18,16 @@ import androidx.room.PrimaryKey
             entity = Account::class,
             parentColumns = ["id"],
             childColumns = ["accountId"],
-            onDelete = ForeignKey.CASCADE
+            onDelete = ForeignKey.RESTRICT
         )
-    ]
+    ],
+    indices = [Index("categoryId"), Index("accountId")]
 )
 data class TransactionTemplate(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val templateName: String,
-    val amount: Double,
+    val amount: Long,
     val categoryId: Long,
     val accountId: Long,
     val note: String,

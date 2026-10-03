@@ -2,88 +2,100 @@ package com.example.budgettracker.ui.goals
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-
-
 import com.example.budgettracker.data.local.entity.Account
-import com.example.budgettracker.data.local.entity.ExpenseClassification
+import com.example.budgettracker.data.local.entity.Category
 import com.example.budgettracker.data.local.entity.SavingsGoal
-import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.repository.BudgetRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 
+data class GoalProgress(val goal: SavingsGoal, val savedCentavos: Long)
 
 class GoalsViewModel(
     private val repository: BudgetRepository
 ) : ViewModel() {
 
-    val goals: StateFlow<List<SavingsGoal>> = repository.getAllGoals()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val goals: StateFlow<List<GoalProgress>> = combine(
+        repository.getAllGoals(),
+        repository.goalTotals()
+    ) { goalList, totals ->
+        val saved = totals.associate { it.goalId to it.total }
+        goalList.map { goal -> GoalProgress(goal, saved[goal.id] ?: 0L) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val accounts: StateFlow<List<Account>> = repository.getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun fundGoal(goal: SavingsGoal, amount: Double, accountId: Long) {
+    val categories: StateFlow<List<Category>> = repository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _fundError = MutableStateFlow<String?>(null)
+    val fundError: StateFlow<String?> = _fundError
+
+    fun clearFundError() {
+        _fundError.value = null
+    }
+
+    fun fundGoal(goal: SavingsGoal, amount: Long, accountId: Long, spendCategoryId: Long? = null) {
+        if (amount <= 0L) return
         viewModelScope.launch {
-            // Find or create "Savings" category
-            val categories = repository.getAllCategories().first()
-            var savingsCategory = categories.find { it.name == "Savings" }
-            if (savingsCategory == null) {
-                val newCategoryId = repository.insertCategory(
-                    com.example.budgettracker.data.local.entity.Category(
-                        name = "Savings",
-                        type = com.example.budgettracker.data.local.entity.CategoryType.EXPENSE,
-                        colorArgb = 0xFF10B981.toInt()
-                    )
-                )
-                savingsCategory = repository.getAllCategories().first().find { it.id == newCategoryId }
+            try {
+                repository.fundGoal(goal.id, accountId, amount, spendCategoryId = spendCategoryId)
+                _fundError.value = null
+            } catch (error: IllegalStateException) {
+                _fundError.value = error.message ?: "Could not fund this goal"
             }
-
-            // Create transaction
-            if (savingsCategory != null) {
-                repository.insertTransaction(
-                    Transaction(
-                        accountId = accountId,
-                        categoryId = savingsCategory.id,
-                        amount = amount,
-                        timestamp = System.currentTimeMillis(),
-                        note = "Funded goal: ${goal.name}",
-                        classification = ExpenseClassification.SAVING
-                    )
-                )
-            }
-
-            val updatedGoal = goal.copy(currentAmount = goal.currentAmount + amount)
-            repository.updateGoal(updatedGoal)
         }
     }
 
-    fun addGoal(name: String, targetAmount: Double, targetDate: Long? = null, frequency: String? = null, contributionAmount: Double? = null, iconName: String? = null) {
+    fun unfundLatest(goal: SavingsGoal) {
         viewModelScope.launch {
-            val goal = SavingsGoal(
-                name = name,
-                targetAmount = targetAmount,
-                currentAmount = 0.0,
-                targetDate = targetDate,
-                contributionFrequency = frequency,
-                contributionAmount = contributionAmount,
-                iconName = iconName
+            repository.unfundLatest(goal.id)
+        }
+    }
+
+    fun addGoal(
+        name: String,
+        targetAmount: Long,
+        targetDate: Long? = null,
+        frequency: String? = null,
+        contributionAmount: Long? = null,
+        iconName: String? = null
+    ) {
+        if (name.isBlank() || targetAmount <= 0L) return
+        viewModelScope.launch {
+            repository.insertGoal(
+                SavingsGoal(
+                    name = name.trim(),
+                    targetAmount = targetAmount,
+                    currentAmount = 0L,
+                    targetDate = targetDate,
+                    contributionFrequency = frequency,
+                    contributionAmount = contributionAmount,
+                    iconName = iconName
+                )
             )
-            repository.insertGoal(goal)
         }
     }
 
-    fun updateGoal(goal: SavingsGoal, name: String, targetAmount: Double, targetDate: Long?, frequency: String?, contributionAmount: Double?, iconName: String? = null) {
+    fun updateGoal(
+        goal: SavingsGoal,
+        name: String,
+        targetAmount: Long,
+        targetDate: Long?,
+        frequency: String?,
+        contributionAmount: Long?,
+        iconName: String? = null
+    ) {
+        if (name.isBlank() || targetAmount <= 0L) return
         viewModelScope.launch {
             repository.updateGoal(
                 goal.copy(
-                    name = name,
+                    name = name.trim(),
                     targetAmount = targetAmount,
                     targetDate = targetDate,
                     contributionFrequency = frequency,

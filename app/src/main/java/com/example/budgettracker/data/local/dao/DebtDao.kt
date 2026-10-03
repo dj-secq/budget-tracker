@@ -14,6 +14,20 @@ interface DebtDao {
     @Query("SELECT * FROM debts ORDER BY date DESC")
     fun getAllDebts(): Flow<List<Debt>>
 
+    @Query("SELECT * FROM debts")
+    suspend fun listAll(): List<Debt>
+
+    @Query("SELECT * FROM debts WHERE id = :id")
+    suspend fun getDebtById(id: Long): Debt?
+
+    @Query(
+        """
+        SELECT * FROM debts
+        WHERE isPaid = 0 AND dueDate IS NOT NULL AND dueDate >= :start AND dueDate <= :end
+        """
+    )
+    suspend fun dueBetween(start: Long, end: Long): List<Debt>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDebt(debt: Debt): Long
 
@@ -22,4 +36,7 @@ interface DebtDao {
 
     @Delete
     suspend fun deleteDebt(debt: Debt)
+
+    @Query("DELETE FROM debts")
+    suspend fun deleteAll()
 }

@@ -1,5 +1,7 @@
 package com.example.budgettracker.ui.components
 
+import com.example.budgettracker.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -38,14 +40,14 @@ fun MonthPicker(
             }
             onMonthChanged(m, y)
         }) {
-            Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous Month")
+            Icon(Icons.Filled.ChevronLeft, contentDescription = stringResource(R.string.previous_month))
         }
 
         val monthName = DateFormatSymbols().months[currentMonth - 1]
         Text(
             text = "$monthName $currentYear",
             fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -67,7 +69,7 @@ fun MonthPicker(
         ) {
             Icon(
                 Icons.Filled.ChevronRight, 
-                contentDescription = "Next Month",
+                contentDescription = stringResource(R.string.next_month),
                 tint = if (isCurrentOrFuture) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.onSurface
             )
         }

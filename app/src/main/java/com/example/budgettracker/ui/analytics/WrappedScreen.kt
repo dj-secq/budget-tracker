@@ -1,5 +1,8 @@
 package com.example.budgettracker.ui.analytics
 
+import android.content.Intent
+import com.example.budgettracker.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -12,16 +15,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.budgettracker.domain.SpendCompare
+import com.example.budgettracker.domain.StoryTitle
 import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.utils.CurrencyUtils
+import java.time.format.TextStyle
+import java.util.Locale
+
+private enum class WrappedPage {
+    INTRO, PICTURE, CAPS, ACTIVITY, LARGEST, TOP, QUIET, CLOSE
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +44,7 @@ fun WrappedScreen(
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    
+
     LaunchedEffect(month, year) {
         viewModel.loadWrappedData(month, year)
     }
@@ -43,7 +55,7 @@ fun WrappedScreen(
                 title = { Text("") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close Wrapped")
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close_wrapped))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -54,31 +66,42 @@ fun WrappedScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
-    ) { innerPadding ->
+    ) { _ ->
         if (uiState.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
-            val pagerState = rememberPagerState(pageCount = { 7 })
-            
+            val story = uiState.story
+            val pages = remember(story, uiState.transactionCount) {
+                buildList {
+                    add(WrappedPage.INTRO)
+                    add(WrappedPage.PICTURE)
+                    if (story.capped > 0) add(WrappedPage.CAPS)
+                    if (uiState.transactionCount > 0) add(WrappedPage.ACTIVITY)
+                    if (story.largest != null) add(WrappedPage.LARGEST)
+                    if (story.topCategories.isNotEmpty()) add(WrappedPage.TOP)
+                    if (story.daysCounted > 0) add(WrappedPage.QUIET)
+                    add(WrappedPage.CLOSE)
+                }
+            }
+            val pagerState = rememberPagerState(pageCount = { pages.size })
             Box(modifier = Modifier.fillMaxSize()) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
-                ) { page ->
-                    when (page) {
-                        0 -> IntroPage(uiState)
-                        1 -> BigPicturePage(uiState)
-                        2 -> ActivityPage(uiState)
-                        3 -> HeavyHitterPage(uiState)
-                        4 -> TopCategoriesPage(uiState)
-                        5 -> SaverPage(uiState)
-                        6 -> VerdictPage(uiState)
+                ) { index ->
+                    when (pages[index]) {
+                        WrappedPage.INTRO -> IntroPage(uiState)
+                        WrappedPage.PICTURE -> BigPicturePage(uiState)
+                        WrappedPage.CAPS -> CapsPage(uiState)
+                        WrappedPage.ACTIVITY -> ActivityPage(uiState)
+                        WrappedPage.LARGEST -> HeavyHitterPage(uiState)
+                        WrappedPage.TOP -> TopCategoriesPage(uiState)
+                        WrappedPage.QUIET -> SaverPage(uiState)
+                        WrappedPage.CLOSE -> VerdictPage(uiState)
                     }
                 }
-                
-                // Page Indicator
                 Row(
                     Modifier
                         .height(50.dp)
@@ -87,8 +110,12 @@ fun WrappedScreen(
                         .padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    repeat(7) { iteration ->
-                        val color = if (pagerState.currentPage == iteration) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                    repeat(pages.size) { iteration ->
+                        val color = if (pagerState.currentPage == iteration) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                        }
                         Box(
                             modifier = Modifier
                                 .padding(2.dp)
@@ -104,142 +131,184 @@ fun WrappedScreen(
 }
 
 @Composable
-fun IntroPage(state: WrappedUiState) {
+private fun pageColumn(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 32.dp, bottom = 72.dp),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Ready for your", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
-        Text("${state.monthName} Wrapped?", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        horizontalAlignment = Alignment.CenterHorizontally,
+        content = content
+    )
+}
+
+@Composable
+private fun titleText(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.headlineMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+fun IntroPage(state: WrappedUiState) {
+    pageColumn {
+        Text(stringResource(R.string.wrapped_ready), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+        Text(
+            stringResource(R.string.wrapped_title, state.monthName),
+            style = MaterialTheme.typography.displayMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center
+        )
         Spacer(modifier = Modifier.height(32.dp))
-        Text("Swipe to see how you did.", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.wrapped_swipe), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        if (state.story.monthOpen) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(stringResource(R.string.story_open), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
     }
 }
 
 @Composable
 fun BigPicturePage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("The Big Picture", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    val story = state.story
+    pageColumn {
+        titleText(stringResource(R.string.wrapped_big_picture))
         Spacer(modifier = Modifier.height(32.dp))
-        
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = EmeraldGreen.copy(alpha = 0.1f))) {
             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Total Income", fontSize = 16.sp)
-                Text(CurrencyUtils.formatAmount(state.totalIncome), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+                Text(stringResource(R.string.total_income), style = MaterialTheme.typography.bodyLarge)
+                Text(CurrencyUtils.formatAmount(state.totalIncome), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = EmeraldGreen)
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f))) {
             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Total Spent", fontSize = 16.sp)
-                Text(CurrencyUtils.formatAmount(state.totalSpent), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.total_spent), style = MaterialTheme.typography.bodyLarge)
+                Text(CurrencyUtils.formatAmount(state.totalSpent), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
             }
         }
         Spacer(modifier = Modifier.height(32.dp))
-        val netColor = if (state.netSavings >= 0) EmeraldGreen else MaterialTheme.colorScheme.error
-        Text("Net Savings: ${CurrencyUtils.formatAmount(state.netSavings)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = netColor)
+        val netColor = if (story.leftoverCentavos >= 0) EmeraldGreen else MaterialTheme.colorScheme.error
+        Text(
+            stringResource(R.string.net_savings_line, CurrencyUtils.formatAmount(story.leftoverCentavos)),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = netColor,
+            textAlign = TextAlign.Center
+        )
+        val compare = when (story.compare) {
+            SpendCompare.UP -> story.comparePercent?.let { stringResource(R.string.story_spent_up, it) }
+            SpendCompare.DOWN -> story.comparePercent?.let { stringResource(R.string.story_spent_down, it) }
+            SpendCompare.SAME -> stringResource(R.string.story_spent_same)
+            SpendCompare.HIDDEN -> null
+        }
+        if (compare != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(compare, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+fun CapsPage(state: WrappedUiState) {
+    val story = state.story
+    pageColumn {
+        titleText(stringResource(R.string.story_caps_title))
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            stringResource(R.string.story_caps, story.insideCap, story.capped),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        if (story.overCap.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            story.overCap.forEach { over ->
+                Text(
+                    stringResource(R.string.story_over_by, over.name, CurrencyUtils.formatAmount(over.centavos)),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
 @Composable
 fun ActivityPage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Your Activity", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    val weekday = state.story.busiestWeekday?.getDisplayName(TextStyle.FULL, Locale.getDefault())
+    pageColumn {
+        titleText(stringResource(R.string.wrapped_activity))
         Spacer(modifier = Modifier.height(32.dp))
-        
-        Text("You made a total of", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("${state.totalTransactions}", fontSize = 64.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-        Text("transactions this month.", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        
-        Spacer(modifier = Modifier.height(48.dp))
-        
-        if (state.busiestDayOfWeek.isNotBlank() && state.busiestDayOfWeek != "Unknown") {
-            Text("Your busiest day to spend money was", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.wrapped_made), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${state.transactionCount}", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+        Text(stringResource(R.string.wrapped_tx_count), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!weekday.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(48.dp))
+            Text(stringResource(R.string.wrapped_busiest), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(state.busiestDayOfWeek, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+            Text(weekday, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
 
 @Composable
 fun HeavyHitterPage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("The Heavy Hitter", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    val largest = state.story.largest
+    pageColumn {
+        titleText(stringResource(R.string.wrapped_heavy))
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Your largest single expense was...", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        if (state.largestExpense != null) {
-            Text(state.largestExpenseCategory, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(CurrencyUtils.formatAmount(state.largestExpense.amount), fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.error)
-            if (state.largestExpense.note.isNotBlank()) {
+        Text(stringResource(R.string.wrapped_largest), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        if (largest != null) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(largest.categoryName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(CurrencyUtils.formatAmount(largest.amountCentavos), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.error)
+            if (largest.note.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("\"${state.largestExpense.note}\"", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("\"${largest.note}\"", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
-        } else {
-            Text("Nothing!", fontSize = 48.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
 
 @Composable
 fun TopCategoriesPage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Top Categories", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    pageColumn {
+        titleText(stringResource(R.string.wrapped_top))
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Where did your money go?", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        
+        Text(stringResource(R.string.wrapped_where), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(32.dp))
-        
-        if (state.topCategories.isEmpty()) {
-            Text("No expenses this month!", fontSize = 20.sp)
-        } else {
-            state.topCategories.forEachIndexed { index, pair ->
-                val medal = when(index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "" }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("$medal ${pair.first}", fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                    Text(CurrencyUtils.formatAmount(pair.second), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-                Divider(modifier = Modifier.padding(vertical = 4.dp))
+        state.story.topCategories.forEachIndexed { index, category ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.wrapped_rank, index + 1, category.name),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(CurrencyUtils.formatAmount(category.centavos), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
         }
     }
 }
 
 @Composable
 fun SaverPage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("The Saver", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+    val story = state.story
+    pageColumn {
+        titleText(stringResource(R.string.wrapped_saver))
         Spacer(modifier = Modifier.height(32.dp))
-        
-        Text("You had", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text(stringResource(R.string.wrapped_you_had), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         Spacer(modifier = Modifier.height(8.dp))
-        
         Box(
             modifier = Modifier
                 .size(160.dp)
@@ -247,34 +316,85 @@ fun SaverPage(state: WrappedUiState) {
                 .background(EmeraldGreen.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
-            Text("${state.noSpendDays}", fontSize = 80.sp, fontWeight = FontWeight.ExtraBold, color = EmeraldGreen)
+            Text("${story.noSpendDays}", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.ExtraBold, color = EmeraldGreen)
         }
-        
         Spacer(modifier = Modifier.height(16.dp))
-        Text("No-Spend Days!", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = EmeraldGreen)
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        val message = when {
-            state.noSpendDays > 15 -> "Absolutely incredible self-control! 🎉"
-            state.noSpendDays > 5 -> "Great job keeping your wallet closed! 👍"
-            state.noSpendDays > 0 -> "Every day counts. Keep it up! 💪"
-            else -> "It was a busy month for your wallet! 💸"
-        }
-        Text(message, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.wrapped_no_spend), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = EmeraldGreen, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.story_days_counted, story.noSpendDays, story.daysCounted),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
 @Composable
 fun VerdictPage(state: WrappedUiState) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("The Verdict", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+    val context = LocalContext.current
+    val story = state.story
+    val title = storyTitle(story.title)
+    val shareText = shareText(state, title)
+    pageColumn {
+        Text(stringResource(R.string.wrapped_verdict), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         Spacer(modifier = Modifier.height(16.dp))
-        Text(state.verdict, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        Text(title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        if (story.mostlyCategory != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                stringResource(R.string.story_mostly, story.mostlyCategory),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
         Spacer(modifier = Modifier.height(32.dp))
-        Text("See you next month!", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(
+            onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                }
+                context.startActivity(Intent.createChooser(send, context.getString(R.string.share_month)))
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+        ) {
+            Text(stringResource(R.string.share_month))
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(stringResource(R.string.wrapped_next), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable
+private fun storyTitle(title: StoryTitle): String = stringResource(
+    when (title) {
+        StoryTitle.EMPTY -> R.string.story_empty
+        StoryTitle.QUIET -> R.string.story_quiet
+        StoryTitle.ONE_PURCHASE -> R.string.story_one_purchase
+        StoryTitle.SEVERAL_INCOMES -> R.string.story_several_incomes
+        StoryTitle.SAVER -> R.string.story_saver
+        StoryTitle.AHEAD -> R.string.story_ahead
+        StoryTitle.OVER -> R.string.story_over
+    }
+)
+
+@Composable
+private fun shareText(state: WrappedUiState, title: String): String {
+    val story = state.story
+    val lines = mutableListOf(
+        stringResource(R.string.share_month_heading, state.monthName, state.year),
+        stringResource(R.string.share_income, CurrencyUtils.formatAmount(state.totalIncome)),
+        stringResource(R.string.share_spent, CurrencyUtils.formatAmount(state.totalSpent)),
+        stringResource(R.string.share_left, CurrencyUtils.formatAmount(story.leftoverCentavos))
+    )
+    if (story.capped > 0) {
+        lines += stringResource(R.string.story_caps, story.insideCap, story.capped)
+    }
+    lines += title
+    if (story.mostlyCategory != null) {
+        lines += stringResource(R.string.story_mostly, story.mostlyCategory)
+    }
+    return lines.joinToString("\n")
 }

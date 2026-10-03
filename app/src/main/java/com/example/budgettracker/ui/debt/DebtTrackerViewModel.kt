@@ -2,21 +2,24 @@ package com.example.budgettracker.ui.debt
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.budgettracker.data.local.entity.Account
 import com.example.budgettracker.data.local.entity.Debt
 import com.example.budgettracker.data.local.entity.DebtType
 import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.data.repository.UserPreferencesRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.first
-import com.example.budgettracker.data.local.entity.Account
-import com.example.budgettracker.data.local.entity.Category
-import com.example.budgettracker.data.local.entity.CategoryType
-import com.example.budgettracker.data.local.entity.Transaction
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DebtTrackerViewModel(
-    private val repository: BudgetRepository
+    private val repository: BudgetRepository,
+    preferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
     val debts: StateFlow<List<Debt>> = repository.getAllDebts()
@@ -25,111 +28,66 @@ class DebtTrackerViewModel(
     val accounts: StateFlow<List<Account>> = repository.getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val lastAccountId: StateFlow<Long?> = preferencesRepository.lastAccountIdFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val settlementAmounts: StateFlow<Map<Long, Long>> = debts
+        .map { list -> list.mapNotNull { it.settlementTransactionId }.distinct() }
+        .distinctUntilChanged()
+        .flatMapLatest { repository.observeTransactionAmounts(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     fun addDebt(
-        personName: String, 
-        amount: Double, 
-        type: DebtType, 
-        note: String, 
+        personName: String,
+        amount: Long,
+        type: DebtType,
+        note: String,
         accountId: Long,
         dueDate: Long?,
         interestRate: Double,
         startDate: Long
     ) {
+        if (personName.isBlank() || amount <= 0L) return
         viewModelScope.launch {
-            val debt = Debt(
-                personName = personName,
-                amount = amount,
-                type = type,
-                date = startDate,
-                isPaid = false,
-                note = note,
-                dueDate = dueDate,
-                interestRate = interestRate,
-                accountId = accountId
-            )
-            repository.insertDebt(debt)
-
-            val allCategories = repository.getAllCategories().first()
-            val catName = if (type == DebtType.LENT) "Loan" else "Loan Received"
-            val catType = if (type == DebtType.LENT) CategoryType.EXPENSE else CategoryType.INCOME
-            
-            var category = allCategories.find { it.name == catName && it.type == catType }
-            if (category == null) {
-                val newCatId = repository.insertCategory(Category(name = catName, type = catType, colorArgb = 0xFF9E9E9E.toInt()))
-                category = Category(id = newCatId, name = catName, type = catType, colorArgb = 0xFF9E9E9E.toInt())
-            }
-            
-            val transaction = Transaction(
-                accountId = accountId,
-                categoryId = category.id,
-                amount = amount,
-                timestamp = startDate,
-                note = if (type == DebtType.LENT) "Lent to $personName" else "Borrowed from $personName",
-                classification = com.example.budgettracker.data.local.entity.ExpenseClassification.NONE
-            )
-            repository.insertTransaction(transaction)
+            repository.createDebt(personName.trim(), amount, type, note, accountId, dueDate, interestRate, startDate)
         }
     }
 
     fun toggleDebtStatus(debt: Debt, accountId: Long?) {
         viewModelScope.launch {
-            val newStatus = !debt.isPaid
-            repository.updateDebt(debt.copy(isPaid = newStatus))
-
-            if (newStatus && accountId != null) {
-                // It was unpaid, now paid. Create offsetting transaction.
-                val allCategories = repository.getAllCategories().first()
-                val catName = if (debt.type == DebtType.LENT) "Loan Repaid" else "Loan Paid"
-                // If I lent money, and it's paid back, that's an INCOME (money comes in).
-                // If I borrowed money, and it's paid back, that's an EXPENSE (money goes out).
-                val catType = if (debt.type == DebtType.LENT) CategoryType.INCOME else CategoryType.EXPENSE
-                
-                var category = allCategories.find { it.name == catName && it.type == catType }
-                if (category == null) {
-                    val newCatId = repository.insertCategory(Category(name = catName, type = catType, colorArgb = 0xFF4CAF50.toInt()))
-                    category = Category(id = newCatId, name = catName, type = catType, colorArgb = 0xFF4CAF50.toInt())
-                }
-                
-                val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - debt.date).coerceAtLeast(0)
-                val interest = debt.amount * (debt.interestRate / 100.0) * (days / 365.0)
-                val totalAmount = debt.amount + interest
-                
-                val transaction = Transaction(
-                    accountId = accountId,
-                    categoryId = category.id,
-                    amount = totalAmount,
-                    timestamp = System.currentTimeMillis(),
-                    note = if (debt.type == DebtType.LENT) "Payment received from ${debt.personName}" else "Repayment to ${debt.personName}",
-                    classification = com.example.budgettracker.data.local.entity.ExpenseClassification.NONE
-                )
-                repository.insertTransaction(transaction)
+            if (debt.isPaid) {
+                repository.unsettleDebt(debt.id)
+            } else if (accountId != null) {
+                repository.settleDebt(debt.id, accountId, System.currentTimeMillis())
             }
         }
     }
 
     fun updateDebt(
         debt: Debt,
-        personName: String, 
-        amount: Double, 
-        type: DebtType, 
-        note: String, 
+        personName: String,
+        amount: Long,
+        type: DebtType,
+        note: String,
         accountId: Long,
         dueDate: Long?,
         interestRate: Double,
         startDate: Long
     ) {
+        if (personName.isBlank() || amount <= 0L) return
         viewModelScope.launch {
-            val updatedDebt = debt.copy(
-                personName = personName,
-                amount = amount,
-                type = type,
-                date = startDate,
-                note = note,
-                dueDate = dueDate,
-                interestRate = interestRate,
-                accountId = accountId
+            repository.updateDebt(
+                debt.copy(
+                    personName = personName.trim(),
+                    amount = amount,
+                    type = type,
+                    date = startDate,
+                    note = note,
+                    dueDate = dueDate,
+                    interestRate = interestRate,
+                    accountId = accountId
+                )
             )
-            repository.updateDebt(updatedDebt)
         }
     }
 

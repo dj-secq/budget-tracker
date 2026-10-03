@@ -15,13 +15,15 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("categoryId")]
+    indices = [
+        Index(value = ["categoryId", "month", "year"], unique = true)
+    ]
 )
 data class BudgetLimit(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val categoryId: Long,
-    val assignedAmount: Double,
+    val assignedAmount: Long,
     val month: Int,
     val year: Int
 )

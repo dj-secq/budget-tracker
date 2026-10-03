@@ -14,22 +14,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.budgettracker.R
+import com.example.budgettracker.domain.paceDeltaCentavos
 import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.utils.CurrencyUtils
 
 @Composable
 fun BudgetProgressBar(
     categoryName: String,
-    spent: Double,
-    limit: Double,
+    spent: Long,
+    limit: Long,
     baseColor: Color,
     icon: ImageVector? = null,
+    paceDay: Int? = null,
+    paceLength: Int? = null,
     modifier: Modifier = Modifier
 ) {
-    val progress = if (limit > 0) (spent / limit).toFloat().coerceIn(0f, 1f) else 0f
+    val progress = if (limit > 0L) (spent.toDouble() / limit.toDouble()).toFloat().coerceIn(0f, 1f) else 0f
+    val percent = if (limit > 0L) ((spent * 100L) / limit).toInt() else 0
+    val percentLabel = stringResource(R.string.progress_percent, percent)
     val isOverBudget = spent > limit
     
     // Choose colors
@@ -61,7 +71,7 @@ fun BudgetProgressBar(
                     Text(
                         text = categoryName,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -69,16 +79,16 @@ fun BudgetProgressBar(
                 val remaining = limit - spent
                 if (isOverBudget) {
                     Text(
-                        text = "Over: ${CurrencyUtils.formatAmount(Math.abs(remaining))}",
+                        text = stringResource(R.string.over_amount, CurrencyUtils.formatAmount(kotlin.math.abs(remaining))),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                 } else {
                     Text(
-                        text = "Left: ${CurrencyUtils.formatAmount(remaining)}",
+                        text = stringResource(R.string.left_amount, CurrencyUtils.formatAmount(remaining)),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = EmeraldGreen
                     )
                 }
@@ -93,6 +103,10 @@ fun BudgetProgressBar(
                     .height(12.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(trackColor)
+                    .semantics {
+                        progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
+                        contentDescription = percentLabel
+                    }
             ) {
                 Box(
                     modifier = Modifier
@@ -105,10 +119,32 @@ fun BudgetProgressBar(
             Spacer(modifier = Modifier.height(4.dp))
         
             Text(
-                text = "Spent: ${CurrencyUtils.formatAmount(spent)} of ${CurrencyUtils.formatAmount(limit)}",
-                fontSize = 12.sp,
+                text = stringResource(
+                    R.string.spent_of,
+                    CurrencyUtils.formatAmount(spent),
+                    CurrencyUtils.formatAmount(limit)
+                ),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val pace = if (paceDay != null && paceLength != null) {
+                paceDeltaCentavos(spent, limit, paceDay, paceLength)
+            } else {
+                null
+            }
+            if (pace != null) {
+                val paceText = when {
+                    pace > 0L -> stringResource(R.string.pace_over, CurrencyUtils.formatAmount(pace))
+                    pace < 0L -> stringResource(R.string.pace_under, CurrencyUtils.formatAmount(kotlin.math.abs(pace)))
+                    else -> stringResource(R.string.pace_on)
+                }
+                Text(
+                    text = paceText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (pace > 0L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    softWrap = true
+                )
+            }
         }
     }
 }

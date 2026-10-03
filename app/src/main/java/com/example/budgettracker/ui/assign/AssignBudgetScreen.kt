@@ -1,5 +1,7 @@
 package com.example.budgettracker.ui.assign
 
+import com.example.budgettracker.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.budgettracker.domain.Money
 import com.example.budgettracker.ui.components.MonthPicker
 
 import com.example.budgettracker.ui.utils.CategoryIconHelper
@@ -39,10 +42,10 @@ fun AssignBudgetScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Assign Budget") },
+                title = { Text(stringResource(R.string.assign_budget)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -81,7 +84,7 @@ fun AssignBudgetScreen(
                             .padding(vertical = 8.dp)
                             .clickable {
                                 categoryToEdit = item.category.id
-                                editAmount = if (item.limit > 0) item.limit.toString() else ""
+                                editAmount = if (item.base > 0L) Money.toInputString(item.base) else ""
                             }
                     ) {
                         Row(
@@ -89,7 +92,10 @@ fun AssignBudgetScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     imageVector = CategoryIconHelper.getIconForCategory(item.category.name),
                                     contentDescription = null,
@@ -97,14 +103,34 @@ fun AssignBudgetScreen(
                                     modifier = Modifier.size(24.dp)
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(item.category.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                    Text("Spent: ${CurrencyUtils.formatAmount(item.spent)}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(item.category.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, softWrap = true)
+                                    Text(stringResource(R.string.spent_amount, CurrencyUtils.formatAmount(item.spent)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
+                                    if (item.suggestedBase != null) {
+                                        Text(
+                                            stringResource(R.string.suggested_base, CurrencyUtils.formatAmount(item.suggestedBase)),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            softWrap = true
+                                        )
+                                    }
                                 }
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("Limit: ${CurrencyUtils.formatAmount(item.limit)}", fontWeight = FontWeight.Bold)
-                                Icon(Icons.Filled.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.base_amount, CurrencyUtils.formatAmount(item.base)), fontWeight = FontWeight.Bold)
+                                if (uiState.rolloverEnabled) {
+                                    Text(
+                                        stringResource(R.string.rollover_amount, CurrencyUtils.formatAmount(item.rollover)),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        stringResource(R.string.effective_amount, CurrencyUtils.formatAmount(item.effective)),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -116,28 +142,38 @@ fun AssignBudgetScreen(
     categoryToEdit?.let { categoryId ->
         AlertDialog(
             onDismissRequest = { categoryToEdit = null },
-            title = { Text("Assign Budget") },
+            title = { Text(stringResource(R.string.assign_budget)) },
             text = {
-                OutlinedTextField(
-                    value = editAmount,
-                    onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) editAmount = it },
-                    label = { Text("Amount") },
-                    prefix = { Text("₱") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                )
+                val suggestion = uiState.budgetItems.find { it.category.id == categoryId }?.suggestedBase
+                Column {
+                    OutlinedTextField(
+                        value = editAmount,
+                        onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) editAmount = it },
+                        label = { Text(stringResource(R.string.amount_label)) },
+                        prefix = { Text("₱") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+                    if (suggestion != null) {
+                        TextButton(onClick = { editAmount = Money.toInputString(suggestion) }) {
+                            Text(stringResource(R.string.use_suggested, CurrencyUtils.formatAmount(suggestion)))
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val amount = editAmount.toDoubleOrNull() ?: 0.0
-                    viewModel.updateBudgetLimit(categoryId, amount)
-                    categoryToEdit = null
+                    val amount = if (editAmount.isBlank()) 0L else Money.parsePesos(editAmount)
+                    if (amount != null) {
+                        viewModel.updateBudgetLimit(categoryId, amount)
+                        categoryToEdit = null
+                    }
                 }) {
-                    Text("Save")
+                    Text(stringResource(R.string.save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { categoryToEdit = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel_button))
                 }
             }
         )

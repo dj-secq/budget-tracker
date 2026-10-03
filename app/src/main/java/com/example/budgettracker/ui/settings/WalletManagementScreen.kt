@@ -1,5 +1,7 @@
 package com.example.budgettracker.ui.settings
 
+import com.example.budgettracker.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,21 +21,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.budgettracker.ui.theme.EmeraldGreen
-import com.example.budgettracker.ui.theme.CatSoftBlue
-import com.example.budgettracker.ui.theme.CatAmber
-import com.example.budgettracker.ui.theme.CatCoral
-import com.example.budgettracker.ui.theme.CatTeal
-import com.example.budgettracker.ui.theme.CatIndigo
-import com.example.budgettracker.ui.theme.CatPurple
-import com.example.budgettracker.ui.theme.OceanBlue
-import com.example.budgettracker.ui.theme.SunsetOrange
+import com.example.budgettracker.domain.Money
+import com.example.budgettracker.ui.theme.WalletPalette
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +40,7 @@ fun WalletManagementScreen(
     modifier: Modifier = Modifier
 ) {
     val accounts by viewModel.accounts.collectAsState()
+    val deleteBlocked by viewModel.deleteBlocked.collectAsState()
     val haptic = LocalHapticFeedback.current
 
     var name by remember { mutableStateOf("") }
@@ -56,15 +54,15 @@ fun WalletManagementScreen(
     var editName by remember { mutableStateOf("") }
     var editIncludeInTotal by remember { mutableStateOf(true) }
     
-    val colors = listOf(EmeraldGreen, CatSoftBlue, CatAmber, CatCoral, CatTeal, CatIndigo, CatPurple, OceanBlue, SunsetOrange)
+    val colors = WalletPalette.colors
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Manage Wallets") },
+                title = { Text(stringResource(R.string.manage_wallets_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -80,45 +78,52 @@ fun WalletManagementScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text("Add New Wallet", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(stringResource(R.string.add_wallet), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Wallet Name") },
+                    label = { Text(stringResource(R.string.wallet_name)) },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedTextField(
                     value = balance,
                     onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) balance = it },
-                    label = { Text("Starting Balance") },
+                    label = { Text(stringResource(R.string.starting_balance)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     prefix = { Text("₱") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                Text("Color")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                Text(stringResource(R.string.color))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                     items(colors.size) { index ->
                         val color = colors[index]
+                        val colorLabel = stringResource(R.string.color_cd, index + 1)
                         Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(color)
+                                .size(48.dp)
+                                .semantics { contentDescription = colorLabel }
                                 .clickable { selectedColorIndex = index }
-                                .padding(4.dp)
                         ) {
-                            if (selectedColorIndex == index) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.5f))
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            ) {
+                                if (selectedColorIndex == index) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.5f))
+                                    )
+                                }
                             }
                         }
                     }
@@ -130,7 +135,7 @@ fun WalletManagementScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Include in Total Balance")
+                    Text(stringResource(R.string.include_in_total))
                     Switch(
                         checked = includeInTotalBalance,
                         onCheckedChange = { includeInTotalBalance = it }
@@ -140,8 +145,8 @@ fun WalletManagementScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
-                        val parsedBalance = balance.toDoubleOrNull() ?: 0.0
-                        if (name.isNotBlank()) {
+                        val parsedBalance = if (balance.isBlank()) 0L else Money.parsePesos(balance)
+                        if (name.isNotBlank() && parsedBalance != null) {
                             viewModel.addWallet(name, parsedBalance, selectedColorIndex, includeInTotalBalance)
                             name = ""
                             balance = ""
@@ -151,11 +156,11 @@ fun WalletManagementScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = name.isNotBlank()
                 ) {
-                    Text("Add Wallet")
+                    Text(stringResource(R.string.add_wallet_button))
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
-                Text("Existing Wallets", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(stringResource(R.string.existing_wallets), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
             }
             
             items(accounts) { account ->
@@ -180,7 +185,7 @@ fun WalletManagementScreen(
                                 Text(account.name, fontWeight = FontWeight.Bold)
                                 Text(com.example.budgettracker.ui.utils.CurrencyUtils.formatAmount(account.balance), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (!account.includeInTotalBalance) {
-                                    Text("Excluded from Total", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.excluded_from_total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -190,10 +195,10 @@ fun WalletManagementScreen(
                                 editName = account.name
                                 editIncludeInTotal = account.includeInTotalBalance
                             }) {
-                                Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit), tint = MaterialTheme.colorScheme.primary)
                             }
                             IconButton(onClick = { walletToDelete = account }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete_button), tint = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -206,8 +211,8 @@ fun WalletManagementScreen(
     walletToDelete?.let { account ->
         AlertDialog(
             onDismissRequest = { walletToDelete = null },
-            title = { Text("Confirm Deletion") },
-            text = { Text("Are you sure you want to delete the wallet \"${account.name}\"? This will NOT delete the transactions associated with it, but the balance will no longer be tracked.") },
+            title = { Text(stringResource(R.string.confirm_deletion)) },
+            text = { Text(stringResource(R.string.delete_wallet_message, account.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -217,12 +222,25 @@ fun WalletManagementScreen(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.delete_button))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { walletToDelete = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel_button))
+                }
+            }
+        )
+    }
+
+    if (deleteBlocked) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearDeleteBlocked() },
+            title = { Text(stringResource(R.string.cant_delete_wallet)) },
+            text = { Text(stringResource(R.string.cant_delete_wallet_body)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearDeleteBlocked() }) {
+                    Text(stringResource(R.string.ok))
                 }
             }
         )
@@ -232,13 +250,13 @@ fun WalletManagementScreen(
     walletToEdit?.let { account ->
         AlertDialog(
             onDismissRequest = { walletToEdit = null },
-            title = { Text("Edit Wallet") },
+            title = { Text(stringResource(R.string.edit_wallet)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
-                        label = { Text("Wallet Name") },
+                        label = { Text(stringResource(R.string.wallet_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -247,7 +265,7 @@ fun WalletManagementScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Include in Total Balance")
+                        Text(stringResource(R.string.include_in_total))
                         Switch(
                             checked = editIncludeInTotal,
                             onCheckedChange = { editIncludeInTotal = it }
@@ -263,12 +281,12 @@ fun WalletManagementScreen(
                     },
                     enabled = editName.isNotBlank()
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { walletToEdit = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel_button))
                 }
             }
         )

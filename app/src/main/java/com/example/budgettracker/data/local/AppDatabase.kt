@@ -30,7 +30,7 @@ import com.example.budgettracker.data.local.dao.TransactionTemplateDao
         Debt::class,
         TransactionTemplate::class
     ],
-    version = 10,
+    version = 13,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -1,13 +1,7 @@
 package com.example.budgettracker.ui.utils
 
-import java.text.NumberFormat
-import java.util.Locale
+import com.example.budgettracker.domain.Money
 
 object CurrencyUtils {
-    // We use a custom NumberFormat for Philippine Peso
-    private val format = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-
-    fun formatAmount(amount: Double): String {
-        return format.format(amount)
-    }
+    fun formatAmount(centavos: Long): String = Money.format(centavos)
 }

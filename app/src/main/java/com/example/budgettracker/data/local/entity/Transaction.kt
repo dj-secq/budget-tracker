@@ -13,18 +13,33 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["categoryId"],
             onDelete = ForeignKey.RESTRICT
+        ),
+        ForeignKey(
+            entity = Account::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.RESTRICT
         )
     ],
-    indices = [Index("categoryId")]
+    indices = [
+        Index("categoryId"),
+        Index("accountId"),
+        Index("timestamp"),
+        Index(value = ["categoryId", "timestamp"]),
+        Index(value = ["recurringId", "timestamp"], unique = true)
+    ]
 )
 data class Transaction(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val accountId: Long,
     val categoryId: Long,
-    val amount: Double,
+    val amount: Long,
     val timestamp: Long,
     val note: String,
     val payeeOrPayer: String? = null,
-    val classification: ExpenseClassification = ExpenseClassification.NONE
+    val classification: ExpenseClassification = ExpenseClassification.NONE,
+    val recurringId: Long? = null,
+    val goalId: Long? = null,
+    val splitGroupId: String? = null
 )

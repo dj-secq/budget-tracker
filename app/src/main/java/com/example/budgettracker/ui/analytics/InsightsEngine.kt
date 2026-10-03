@@ -1,8 +1,12 @@
 package com.example.budgettracker.ui.analytics
 
-import com.example.budgettracker.data.local.entity.Category
-import com.example.budgettracker.data.local.entity.Transaction
-import com.example.budgettracker.data.local.entity.CategoryType
+import android.content.res.Resources
+import com.example.budgettracker.R
+import com.example.budgettracker.domain.SpendingTrend
+import com.example.budgettracker.domain.spendingDecreasePercent
+import com.example.budgettracker.domain.spendingIncreasePercent
+import com.example.budgettracker.domain.spendingTrend
+import com.example.budgettracker.ui.utils.CurrencyUtils
 
 data class Insight(
     val title: String,
@@ -15,82 +19,99 @@ enum class InsightType {
 }
 
 object InsightsEngine {
-    
+
     fun generateInsights(
-        currentMonthTransactions: List<Transaction>,
-        previousMonthTransactions: List<Transaction>,
-        categories: List<Category>,
-        totalIncome: Double,
-        totalExpenses: Double
+        hasTransactions: Boolean,
+        totalIncome: Long,
+        totalExpenses: Long,
+        topExpenseName: String?,
+        topExpenseAmount: Long,
+        previousExpenseTotal: Long,
+        hasPreviousMonth: Boolean,
+        monthOpen: Boolean,
+        resources: Resources
     ): List<Insight> {
-        val insights = mutableListOf<Insight>()
-        
-        if (currentMonthTransactions.isEmpty()) {
+        if (!hasTransactions) {
             return listOf(
-                Insight("Welcome!", "Start logging transactions to get personalized insights.", InsightType.OBSERVATION)
+                Insight(
+                    resources.getString(R.string.insight_welcome_title),
+                    resources.getString(R.string.insight_welcome_body),
+                    InsightType.OBSERVATION
+                )
             )
         }
 
-        // 1. Spending Ratio Warning
-        if (totalIncome > 0) {
-            val expenseRatio = totalExpenses / totalIncome
+        val insights = mutableListOf<Insight>()
+
+        if (totalIncome > 0L) {
+            val expenseRatio = totalExpenses.toDouble() / totalIncome
             if (expenseRatio > 0.8) {
-                insights.add(Insight(
-                    "High Spending", 
-                    "You've already spent ${(expenseRatio * 100).toInt()}% of your income. Consider slowing down!", 
-                    InsightType.WARNING
-                ))
+                insights.add(
+                    Insight(
+                        resources.getString(R.string.insight_high_spending_title),
+                        resources.getString(R.string.insight_high_spending_body, (expenseRatio * 100).toInt()),
+                        InsightType.WARNING
+                    )
+                )
             } else if (expenseRatio < 0.5) {
-                insights.add(Insight(
-                    "Great Saving!", 
-                    "You've kept your expenses under 50% of your income. Outstanding work!", 
-                    InsightType.PRAISE
-                ))
+                insights.add(
+                    Insight(
+                        resources.getString(R.string.insight_great_saving_title),
+                        resources.getString(R.string.insight_great_saving_body),
+                        InsightType.PRAISE
+                    )
+                )
             }
         }
 
-        // 2. Highest Category Observation
-        val expenseCategoriesMap = categories.filter { it.type == CategoryType.EXPENSE && it.name != "Withdraw / Transfer Out" }.associateBy { it.id }
-        
-        val categoryTotals = currentMonthTransactions
-            .filter { expenseCategoriesMap.containsKey(it.categoryId) }
-            .groupBy { it.categoryId }
-            .mapValues { entry -> entry.value.sumOf { it.amount } }
-            
-        val maxCategory = categoryTotals.maxByOrNull { it.value }
-        
-        if (maxCategory != null && maxCategory.value > 0) {
-            val catName = expenseCategoriesMap[maxCategory.key]?.name ?: "Unknown"
-            insights.add(Insight(
-                "Top Expense", 
-                "Your highest expense category this month is '$catName', taking up ${com.example.budgettracker.ui.utils.CurrencyUtils.formatAmount(maxCategory.value)}.", 
-                InsightType.OBSERVATION
-            ))
+        if (topExpenseName != null && topExpenseAmount > 0L) {
+            insights.add(
+                Insight(
+                    resources.getString(R.string.insight_top_expense_title),
+                    resources.getString(
+                        R.string.insight_top_expense_body,
+                        topExpenseName,
+                        CurrencyUtils.formatAmount(topExpenseAmount)
+                    ),
+                    InsightType.OBSERVATION
+                )
+            )
         }
 
-        // 3. Month-over-Month Comparison
-        if (previousMonthTransactions.isNotEmpty()) {
-            val prevTotalExpenses = previousMonthTransactions
-                .filter { expenseCategoriesMap.containsKey(it.categoryId) }
-                .sumOf { it.amount }
-                
-            if (totalExpenses < prevTotalExpenses * 0.9) {
-                insights.add(Insight(
-                    "Trending Down", 
-                    "Awesome! You spent less this month compared to the previous month.", 
-                    InsightType.PRAISE
-                ))
-            } else if (totalExpenses > prevTotalExpenses * 1.2) {
-                insights.add(Insight(
-                    "Trending Up", 
-                    "Watch out! Your expenses are 20% higher than last month.", 
-                    InsightType.WARNING
-                ))
+        if (hasPreviousMonth) {
+            when (spendingTrend(totalExpenses, previousExpenseTotal, monthOpen)) {
+                SpendingTrend.UP -> {
+                    val increase = spendingIncreasePercent(totalExpenses, previousExpenseTotal) ?: 0
+                    insights.add(
+                        Insight(
+                            resources.getString(R.string.insight_trending_up_title),
+                            resources.getString(R.string.insight_trending_up_body, increase),
+                            InsightType.WARNING
+                        )
+                    )
+                }
+                SpendingTrend.DOWN -> {
+                    val decrease = spendingDecreasePercent(totalExpenses, previousExpenseTotal) ?: 0
+                    insights.add(
+                        Insight(
+                            resources.getString(R.string.insight_trending_down_title),
+                            resources.getString(R.string.insight_trending_down_body, decrease),
+                            InsightType.PRAISE
+                        )
+                    )
+                }
+                SpendingTrend.NONE -> Unit
             }
         }
 
-        return insights.ifEmpty { 
-            listOf(Insight("On Track", "Your finances look stable. Keep up the good habits!", InsightType.OBSERVATION)) 
+        return insights.ifEmpty {
+            listOf(
+                Insight(
+                    resources.getString(R.string.insight_on_track_title),
+                    resources.getString(R.string.insight_on_track_body),
+                    InsightType.OBSERVATION
+                )
+            )
         }
     }
 }

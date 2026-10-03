@@ -15,50 +15,65 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.budgettracker.data.repository.Accent
 import com.example.budgettracker.data.repository.ThemeMode
 
-private val DarkColorScheme = darkColorScheme(
-    primary = EmeraldGreen,
-    secondary = CatSoftBlue,
-    tertiary = CatTeal,
-    background = BackgroundDark,
-    surface = SurfaceDark,
-    surfaceVariant = SurfaceVariantDark,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = TextPrimaryDark,
-    onSurface = TextPrimaryDark,
-    onSurfaceVariant = TextSecondaryDark,
-    error = ErrorRed
-)
+private fun accentColor(accent: Accent): Color = when (accent) {
+    Accent.EMERALD -> EmeraldGreen
+    Accent.OCEAN -> OceanBlue
+    Accent.SUNSET -> SunsetOrange
+}
 
-private val LightColorScheme = lightColorScheme(
-    primary = EmeraldGreen,
-    secondary = CatSoftBlue,
-    tertiary = CatTeal,
-    background = BackgroundLight,
-    surface = SurfaceLight,
-    surfaceVariant = SurfaceVariantLight,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = TextPrimaryLight,
-    onSurface = TextPrimaryLight,
-    onSurfaceVariant = TextSecondaryLight,
-    error = ErrorRed
-)
+private fun scheme(dark: Boolean, accent: Accent) = run {
+    val primary = accentColor(accent)
+    // Emerald, ocean, and sunset all sit under the 0.55 cutoff, which would pick white.
+    // Dark text is the readable choice already used on emerald buttons.
+    val onPrimary = TextPrimaryLight
+    if (dark) {
+        darkColorScheme(
+            primary = primary,
+            secondary = CatSoftBlue,
+            tertiary = CatTeal,
+            background = BackgroundDark,
+            surface = SurfaceDark,
+            surfaceVariant = SurfaceVariantDark,
+            onPrimary = onPrimary,
+            onSecondary = Color.White,
+            onTertiary = Color.White,
+            onBackground = TextPrimaryDark,
+            onSurface = TextPrimaryDark,
+            onSurfaceVariant = TextSecondaryDark,
+            error = ErrorRed
+        )
+    } else {
+        lightColorScheme(
+            primary = primary,
+            secondary = CatSoftBlue,
+            tertiary = CatTeal,
+            background = BackgroundLight,
+            surface = SurfaceLight,
+            surfaceVariant = SurfaceVariantLight,
+            onPrimary = onPrimary,
+            onSecondary = Color.White,
+            onTertiary = Color.White,
+            onBackground = TextPrimaryLight,
+            onSurface = TextPrimaryLight,
+            onSurfaceVariant = TextSecondaryLight,
+            error = ErrorRed
+        )
+    }
+}
 
 @Composable
 fun BudgetTrackerTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    accent: Accent = Accent.EMERALD,
     darkTheme: Boolean = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     },
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = false, // Disabled to enforce our stark minimalist palette
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -67,8 +82,7 @@ fun BudgetTrackerTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        else -> scheme(darkTheme, accent)
     }
     val view = LocalView.current
     if (!view.isInEditMode) {

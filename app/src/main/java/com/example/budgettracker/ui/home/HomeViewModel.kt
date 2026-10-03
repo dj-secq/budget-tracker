@@ -2,15 +2,21 @@ package com.example.budgettracker.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-
-
 import com.example.budgettracker.data.local.entity.Account
-import com.example.budgettracker.data.local.entity.BudgetLimit
 import com.example.budgettracker.data.local.entity.Category
 import com.example.budgettracker.data.local.entity.CategoryType
+import com.example.budgettracker.data.local.entity.DebtType
 import com.example.budgettracker.data.local.entity.Transaction
+import com.example.budgettracker.data.local.entity.countsAsExpense
+import com.example.budgettracker.data.local.entity.countsAsIncome
+import android.content.res.Resources
+import com.example.budgettracker.R
 import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.domain.BillDirection
+import com.example.budgettracker.domain.debtOwedCentavos
 import com.example.budgettracker.data.repository.UserPreferencesRepository
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,21 +24,43 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.util.Calendar
 
 data class BudgetItem(
     val category: Category,
-    val limit: Double,
-    val spent: Double,
-    val rollover: Double = 0.0
+    val base: Long,
+    val spent: Long,
+    val rollover: Long = 0L
+) {
+    val limit: Long get() = base + rollover
+}
+
+data class HomeTransactionItem(
+    val transaction: Transaction,
+    val categoryName: String,
+    val income: Boolean
+)
+
+data class HomeUpcoming(
+    val name: String,
+    val whenMillis: Long,
+    val amountCentavos: Long,
+    val arrives: Boolean,
+    val opensDebt: Boolean
 )
 
 data class HomeUiState(
     val accounts: List<Account> = emptyList(),
-    val totalBalance: Double = 0.0,
-    val totalIncome: Double = 0.0,
-    val totalExpenses: Double = 0.0,
+    val totalBalance: Long = 0L,
+    val totalIncome: Long = 0L,
+    val totalExpenses: Long = 0L,
     val budgetItems: List<BudgetItem> = emptyList(),
+    val recent: List<HomeTransactionItem> = emptyList(),
+    val owedToYou: Long = 0L,
+    val youOwe: Long = 0L,
+    val leftAfterBills: Long = 0L,
+    val upcoming: List<HomeUpcoming> = emptyList(),
     val currentMonth: Int = Calendar.getInstance().get(Calendar.MONTH) + 1,
     val currentYear: Int = Calendar.getInstance().get(Calendar.YEAR),
     val currentStreak: Int = 0,
@@ -40,22 +68,27 @@ data class HomeUiState(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-
 class HomeViewModel(
     private val budgetRepository: BudgetRepository,
-    private val preferencesRepository: UserPreferencesRepository
+    private val preferencesRepository: UserPreferencesRepository,
+    private val resources: Resources
 ) : ViewModel() {
 
-    private val _monthYear = MutableStateFlow(
-        Pair(Calendar.getInstance().get(Calendar.MONTH) + 1, Calendar.getInstance().get(Calendar.YEAR))
-    )
+    private val _monthYear = MutableStateFlow(currentMonthYear())
+
+    init {
+        viewModelScope.launch {
+            val (month, year) = _monthYear.value
+            budgetRepository.copyBudgetsForwardIfEmpty(month, year)
+        }
+    }
 
     private val monthlyDataFlow = _monthYear.flatMapLatest { (month, year) ->
         combine(
             budgetRepository.getTransactionsForMonth(month, year),
             budgetRepository.getBudgetLimitsForMonth(month, year)
         ) { txs, limits ->
-            Pair(txs, limits)
+            txs to limits
         }
     }
 
@@ -64,117 +97,156 @@ class HomeViewModel(
             budgetRepository.getAllAccounts(),
             budgetRepository.getAllCategories(),
             monthlyDataFlow
-        ) { a, b, c -> Triple(a, b, c) },
+        ) { accounts, categories, monthly ->
+            Triple(accounts, categories, monthly)
+        },
         combine(
             _monthYear,
             budgetRepository.getRecentTransactions(),
             preferencesRepository.generalPreferencesFlow
-        ) { a, b, c -> Triple(a, b, c) }
-    ) { (accounts, categories, monthlyData), (monthYear, allTransactions, prefs) ->
-        
-        val (monthTransactions, budgetLimits) = monthlyData
+        ) { monthYear, transactions, prefs ->
+            Triple(monthYear, transactions, prefs)
+        },
+        budgetRepository.getAllDebts(),
+        budgetRepository.getAllRecurringTransactions()
+    ) { left, right, debts, rules ->
+        val (accounts, categories, monthly) = left
+        val (monthYear, allTransactions, prefs) = right
+        val (monthTransactions, budgetLimits) = monthly
         val (month, year) = monthYear
-        
-        val incomeCategories = categories.filter { it.type == CategoryType.INCOME && it.name != "Deposit / Transfer In" }
-        val expenseCategories = categories.filter { it.type == CategoryType.EXPENSE && it.name != "Withdraw / Transfer Out" }
-        
-        // Gamification: Streaks
-        val activeDaysLocal = allTransactions
-            .map {
-                val cal = Calendar.getInstance().apply { timeInMillis = it.timestamp }
-                cal.get(Calendar.YEAR) * 10000 + cal.get(Calendar.MONTH) * 100 + cal.get(Calendar.DAY_OF_MONTH)
-            }.toSet()
-            
-        var currentStreak = 0
-        var longestStreak = 0
-        
-        if (allTransactions.isNotEmpty()) {
-            val firstTxTime = allTransactions.minOf { it.timestamp }
-            val checkCal = Calendar.getInstance().apply { 
-                timeInMillis = firstTxTime 
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-            }
-            val todayTime = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-            }.timeInMillis
-            
-            var tempStreak = 0
-            while(checkCal.timeInMillis < todayTime) {
-                val d = checkCal.get(Calendar.YEAR) * 10000 + checkCal.get(Calendar.MONTH) * 100 + checkCal.get(Calendar.DAY_OF_MONTH)
-                if (activeDaysLocal.contains(d)) {
-                    tempStreak++
-                    if (tempStreak > longestStreak) longestStreak = tempStreak
-                } else {
-                    tempStreak = 0
-                }
-                checkCal.add(Calendar.DAY_OF_YEAR, 1)
-            }
-            
-            // Calculate current streak (look backwards from today)
-            val todayCal = Calendar.getInstance()
-            val oldestExpenseDay = if (activeDaysLocal.isNotEmpty()) {
-                activeDaysLocal.minOrNull() ?: 0
-            } else {
-                val cal = Calendar.getInstance().apply { timeInMillis = firstTxTime }
-                cal.get(Calendar.YEAR) * 10000 + cal.get(Calendar.MONTH) * 100 + cal.get(Calendar.DAY_OF_MONTH)
-            }
-            
-            while (true) {
-                val d = todayCal.get(Calendar.YEAR) * 10000 + todayCal.get(Calendar.MONTH) * 100 + todayCal.get(Calendar.DAY_OF_MONTH)
-                if (d < oldestExpenseDay) {
-                    // We've gone past the first recorded transaction date
-                    break
-                }
-                
-                if (activeDaysLocal.contains(d)) {
-                    currentStreak++
-                    todayCal.add(Calendar.DAY_OF_YEAR, -1)
-                } else {
-                    break
-                }
-            }
-        }
+        val categoryById = categories.associateBy { it.id }
 
-        // Use monthly transactions for income/expense/budget calculations
-        val totalIncome = monthTransactions.filter { tx -> 
-            incomeCategories.any { it.id == tx.categoryId } 
-        }.sumOf { it.amount }
+        val activeDays = allTransactions.map { dayKey(it.timestamp) }.toSet()
+        val (currentStreak, longestStreak) = streaks(activeDays, allTransactions)
 
-        val totalExpenses = monthTransactions.filter { tx -> 
-            expenseCategories.any { it.id == tx.categoryId } 
-        }.sumOf { it.amount }
-        
-        // Sum all account balances
+        val totalIncome = monthTransactions.filter { categoryById[it.categoryId]?.countsAsIncome() == true }
+            .sumOf { it.amount }
+        val totalExpenses = monthTransactions.filter { categoryById[it.categoryId]?.countsAsExpense() == true }
+            .sumOf { it.amount }
         val totalBalance = accounts.filter { it.includeInTotalBalance }.sumOf { it.balance }
-        
-        // Budget items use monthly spending
-        val items = expenseCategories.map { category ->
-            val baseLimit = budgetLimits.find { it.categoryId == category.id }?.assignedAmount ?: 0.0
-            val spent = monthTransactions.filter { it.categoryId == category.id }.sumOf { it.amount }
-            val rollover = if (prefs.rolloverBudgetsEnabled) budgetRepository.getRolloverAmount(category.id, month, year) else 0.0
-            BudgetItem(category, baseLimit + rollover, spent, rollover)
+
+        val rolloverMap = if (prefs.rolloverBudgetsEnabled) {
+            budgetRepository.rolloversForMonth(month, year)
+        } else {
+            emptyMap()
         }
-        
+        val items = categories.filter { it.countsAsExpense() }.map { category ->
+            val base = budgetLimits.find { it.categoryId == category.id }?.assignedAmount ?: 0L
+            val spent = monthTransactions.filter { it.categoryId == category.id }.sumOf { it.amount }
+            val rollover = rolloverMap[category.id] ?: 0L
+            BudgetItem(category, base, spent, rollover)
+        }.filter { it.limit > 0L || it.spent > 0L }
+
+        val recent = allTransactions.take(5).map { tx ->
+            val category = categoryById[tx.categoryId]
+            HomeTransactionItem(
+                transaction = tx,
+                categoryName = category?.name ?: resources.getString(R.string.unknown_category),
+                income = category?.type == CategoryType.INCOME
+            )
+        }
+
+        val asOf = System.currentTimeMillis()
+        val owedToYou = debts.filter { it.type == DebtType.LENT }.sumOf {
+            debtOwedCentavos(it.amount, it.interestRate, it.date, asOf, it.isPaid)
+        }
+        val youOwe = debts.filter { it.type == DebtType.BORROWED }.sumOf {
+            debtOwedCentavos(it.amount, it.interestRate, it.date, asOf, it.isPaid)
+        }
+        val outlook = outlookFromLedger(
+            accounts = accounts,
+            categories = categories,
+            rules = rules,
+            debts = debts,
+            unknownDebtName = resources.getString(R.string.debt_tracker),
+            today = LocalDate.now(),
+            zone = ZoneId.systemDefault(),
+            asOf = asOf,
+            includedBalanceCentavos = totalBalance
+        )
+
         HomeUiState(
             accounts = accounts,
             totalBalance = totalBalance,
             totalIncome = totalIncome,
             totalExpenses = totalExpenses,
             budgetItems = items,
+            recent = recent,
+            owedToYou = owedToYou,
+            youOwe = youOwe,
+            leftAfterBills = outlook.leftCentavos,
+            upcoming = outlook.upcoming.map { bill ->
+                HomeUpcoming(
+                    name = bill.name,
+                    whenMillis = bill.whenMillis,
+                    amountCentavos = bill.amountCentavos,
+                    arrives = bill.direction == BillDirection.ARRIVES,
+                    opensDebt = bill.opensDebt
+                )
+            },
             currentMonth = month,
             currentYear = year,
             currentStreak = currentStreak,
             longestStreak = longestStreak
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = HomeUiState()
-    )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeUiState())
 
     fun setMonth(month: Int, year: Int) {
-        _monthYear.value = Pair(month, year)
+        _monthYear.value = month to year
+        viewModelScope.launch {
+            budgetRepository.copyBudgetsForwardIfEmpty(month, year)
+        }
+    }
+
+    private fun dayKey(timestamp: Long): Int {
+        val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+        return calendar.get(Calendar.YEAR) * 10000 +
+            calendar.get(Calendar.MONTH) * 100 +
+            calendar.get(Calendar.DAY_OF_MONTH)
+    }
+
+    private fun streaks(activeDays: Set<Int>, transactions: List<Transaction>): Pair<Int, Int> {
+        if (transactions.isEmpty()) return 0 to 0
+        val firstTxTime = transactions.minOf { it.timestamp }
+        val check = Calendar.getInstance().apply {
+            timeInMillis = firstTxTime
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+        }
+        val todayEnd = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+        }.timeInMillis
+        var longest = 0
+        var running = 0
+        while (check.timeInMillis < todayEnd) {
+            if (activeDays.contains(dayKey(check.timeInMillis))) {
+                running++
+                if (running > longest) longest = running
+            } else {
+                running = 0
+            }
+            check.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        var current = 0
+        val cursor = Calendar.getInstance()
+        val oldest = activeDays.minOrNull() ?: dayKey(firstTxTime)
+        while (true) {
+            val key = dayKey(cursor.timeInMillis)
+            if (key < oldest) break
+            if (activeDays.contains(key)) {
+                current++
+                cursor.add(Calendar.DAY_OF_YEAR, -1)
+            } else {
+                break
+            }
+        }
+        return current to longest
+    }
+
+    private fun currentMonthYear(): Pair<Int, Int> {
+        val calendar = Calendar.getInstance()
+        return (calendar.get(Calendar.MONTH) + 1) to calendar.get(Calendar.YEAR)
     }
 }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.model.TransactionUiItem
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.local.entity.CategoryType
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.util.Calendar
 
@@ -26,10 +28,12 @@ data class TransactionsUiState(
     val filterAccountId: Long? = null,
     val startDate: Long? = null,
     val endDate: Long? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    val canLoadMore: Boolean = false
 )
 
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TransactionsViewModel(
     private val repository: BudgetRepository
 ) : ViewModel() {
@@ -39,16 +43,24 @@ class TransactionsViewModel(
     private val _startDate = MutableStateFlow<Long?>(null)
     private val _endDate = MutableStateFlow<Long?>(null)
     private val _searchQuery = MutableStateFlow("")
+    private val _pageSize = MutableStateFlow(LEDGER_PAGE)
+
+    private val ledger = combine(_startDate, _endDate, _pageSize) { start, end, limit ->
+        Triple(start, end, limit)
+    }.flatMapLatest { (start, end, limit) ->
+        repository.observeLedger(start, end, limit)
+    }
 
     val uiState: StateFlow<TransactionsUiState> = combine(
         repository.getAllCategories(),
         repository.getAllAccounts(),
-        repository.getRecentTransactions(),
+        ledger,
         _filterCategoryIds,
         _filterAccountId,
         _startDate,
         _endDate,
-        _searchQuery
+        _searchQuery,
+        _pageSize
     ) { params: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val categories = params[0] as List<Category>
@@ -62,6 +74,7 @@ class TransactionsViewModel(
         val start = params[5] as Long?
         val end = params[6] as Long?
         val search = params[7] as String
+        val pageSize = params[8] as Int
 
         val filteredTxs = transactions.filter { tx ->
             val matchCat = filterCats.isEmpty() || tx.categoryId in filterCats
@@ -83,7 +96,8 @@ class TransactionsViewModel(
             TransactionUiItem(
                 transaction = tx,
                 categoryName = category?.name ?: "Unknown",
-                categoryType = category?.type ?: CategoryType.EXPENSE
+                categoryType = category?.type ?: CategoryType.EXPENSE,
+                accountName = accounts.find { it.id == tx.accountId }?.name ?: ""
             )
         }
         TransactionsUiState(
@@ -94,7 +108,8 @@ class TransactionsViewModel(
             filterAccountId = filterAcc,
             startDate = start,
             endDate = end,
-            searchQuery = search
+            searchQuery = search,
+            canLoadMore = transactions.size >= pageSize
         )
     }.stateIn(
         scope = viewModelScope,
@@ -107,10 +122,15 @@ class TransactionsViewModel(
         _filterAccountId.value = accountId
         _startDate.value = start
         _endDate.value = end
+        _pageSize.value = LEDGER_PAGE
     }
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
+    }
+
+    fun focusAccount(accountId: Long?) {
+        _filterAccountId.value = accountId
     }
 
     fun clearFilters() {
@@ -118,11 +138,34 @@ class TransactionsViewModel(
         _filterAccountId.value = null
         _startDate.value = null
         _endDate.value = null
+        _searchQuery.value = ""
+        _pageSize.value = LEDGER_PAGE
     }
 
-    fun deleteTransaction(transaction: Transaction) {
+    fun loadMore() {
+        _pageSize.value += LEDGER_PAGE
+    }
+
+    fun deleteTransaction(transaction: Transaction, onDeleted: (List<Transaction>) -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteTransaction(transaction)
+            val removed = repository.deleteTransaction(transaction)
+            onDeleted(removed)
         }
+    }
+
+    fun restoreTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.insertTransaction(transaction)
+        }
+    }
+
+    fun restoreTransactions(transactions: List<Transaction>) {
+        viewModelScope.launch {
+            repository.restoreTransactions(transactions)
+        }
+    }
+
+    private companion object {
+        const val LEDGER_PAGE = 100
     }
 }

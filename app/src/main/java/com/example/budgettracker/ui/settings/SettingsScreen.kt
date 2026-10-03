@@ -22,8 +22,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
+import android.net.Uri
 import com.example.budgettracker.R
+import android.os.Build
+import com.example.budgettracker.data.repository.Accent
 import com.example.budgettracker.data.repository.ThemeMode
+import com.example.budgettracker.ui.lock.DeviceLock
+import com.example.budgettracker.ui.utils.label
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,12 +52,22 @@ fun SettingsScreen(
     val isValid = total == 100
 
     val context = LocalContext.current
+    var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null) {
             viewModel.exportData(context, uri) { success ->
-                Toast.makeText(context, if (success) "Export successful!" else "Export failed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (success) context.getString(R.string.export_success) else context.getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val csvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportCsv(context, uri) { success ->
+                Toast.makeText(context, if (success) context.getString(R.string.export_success) else context.getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -61,8 +76,20 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            viewModel.importData(context, uri) { success ->
-                Toast.makeText(context, if (success) "Import successful!" else "Import failed", Toast.LENGTH_SHORT).show()
+            pendingImportUri = uri
+        }
+    }
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importCsv(context, uri) { outcome ->
+                val message = if (outcome == null || !outcome.headerOk) {
+                    context.getString(R.string.import_failed)
+                } else {
+                    context.getString(R.string.import_csv_result, outcome.added, outcome.skipped, outcome.rejected)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -73,7 +100,7 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -90,7 +117,7 @@ fun SettingsScreen(
         ) {
             Text(
                 text = stringResource(R.string.appearance_header),
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -103,16 +130,53 @@ fun SettingsScreen(
                         onClick = { viewModel.updateThemeMode(mode) },
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = ThemeMode.entries.size)
                     ) {
-                        Text(mode.name.lowercase().capitalize())
+                        Text(mode.label())
                     }
+                }
+            }
+
+            Text(
+                text = stringResource(R.string.accent_header),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                Accent.entries.forEachIndexed { index, accent ->
+                    SegmentedButton(
+                        selected = budgetRule?.accent == accent,
+                        onClick = { viewModel.updateAccent(accent) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = Accent.entries.size)
+                    ) {
+                        Text(accent.label())
+                    }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.dynamic_color), fontWeight = FontWeight.Medium)
+                        Text(
+                            stringResource(R.string.dynamic_color_summary),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = budgetRule?.dynamicColor == true,
+                        onCheckedChange = { viewModel.setDynamicColor(it) }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "General Preferences",
-                fontSize = 20.sp,
+                text = stringResource(R.string.general_preferences),
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -124,8 +188,8 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Daily Reminders", fontWeight = FontWeight.Medium)
-                    Text("Notify me at 8 PM if I haven't logged anything", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.daily_reminders), fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.daily_reminders_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
                     checked = generalPrefs?.dailyRemindersEnabled ?: false,
@@ -136,6 +200,22 @@ fun SettingsScreen(
                     }
                 )
             }
+            val reminderChoices = listOf(
+                8 to R.string.reminder_morning,
+                13 to R.string.reminder_afternoon,
+                20 to R.string.reminder_evening
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                reminderChoices.forEachIndexed { index, (hour, label) ->
+                    SegmentedButton(
+                        selected = (generalPrefs?.reminderHour ?: 20) == hour,
+                        onClick = { viewModel.setReminderHour(context, hour) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = reminderChoices.size)
+                    ) {
+                        Text(stringResource(label))
+                    }
+                }
+            }
 
             // Rollover Budgets Toggle
             Row(
@@ -144,8 +224,8 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Rollover Budgets", fontWeight = FontWeight.Medium)
-                    Text("Carry over unspent budget to the next month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.rollover_budgets), fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.rollover_budgets_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
                     checked = generalPrefs?.rolloverBudgetsEnabled ?: false,
@@ -164,14 +244,35 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Strict Budget Limits", fontWeight = FontWeight.Medium)
-                    Text("Prevent saving a transaction if it exceeds budget", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.strict_limits), fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.strict_limits_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
-                    checked = generalPrefs?.strictLimitsEnabled ?: true,
+                    checked = generalPrefs?.strictLimitsEnabled ?: false,
                     onCheckedChange = {
                         generalPrefs?.let { prefs ->
                             viewModel.updateGeneralPreferences(prefs.dailyRemindersEnabled, prefs.rolloverBudgetsEnabled, it)
+                        }
+                    }
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.app_lock_title), fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.app_lock_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = generalPrefs?.appLockEnabled == true,
+                    onCheckedChange = { enabled ->
+                        if (enabled && !DeviceLock.canLock(context)) {
+                            Toast.makeText(context, context.getString(R.string.app_lock_unavailable), Toast.LENGTH_SHORT).show()
+                        } else {
+                            viewModel.setAppLockEnabled(enabled)
                         }
                     }
                 )
@@ -181,7 +282,7 @@ fun SettingsScreen(
 
             Text(
                 text = stringResource(R.string.data_management_header),
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -195,7 +296,7 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.AccountBalanceWallet, contentDescription = "Wallets", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.AccountBalanceWallet, contentDescription = stringResource(R.string.wallets_cd), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(stringResource(R.string.manage_wallets), fontWeight = FontWeight.Medium)
                 }
@@ -210,7 +311,7 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Category, contentDescription = "Categories", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Category, contentDescription = stringResource(R.string.categories), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(stringResource(R.string.manage_categories), fontWeight = FontWeight.Medium)
                 }
@@ -225,9 +326,9 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Repeat, contentDescription = "Recurring Transactions", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Repeat, contentDescription = stringResource(R.string.recurring_cd), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text("Manage Recurring Transactions", fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.manage_recurring), fontWeight = FontWeight.Medium)
                 }
             }
 
@@ -240,9 +341,43 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Upload, contentDescription = "Export Data", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Upload, contentDescription = stringResource(R.string.export_cd), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text("Export Data (Backup)", fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.export_backup), fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Card(
+                onClick = { csvLauncher.launch("BudgetTrackerTransactions.csv") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Upload, contentDescription = stringResource(R.string.export_csv_cd), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(stringResource(R.string.export_csv), fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.export_csv_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            Card(
+                onClick = { csvImportLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "*/*")) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.import_csv), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(stringResource(R.string.import_csv), fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.import_csv_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
 
@@ -255,11 +390,36 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Download, contentDescription = "Import Data", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.import_cd), tint = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
-                        Text("Import Data (Restore)", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
-                        Text("Warning: Replaces all existing data", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.import_restore), fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.import_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
+            Card(
+                onClick = {
+                    viewModel.recalculateBalances { success ->
+                        Toast.makeText(
+                            context,
+                            context.getString(if (success) R.string.recalculate_success else R.string.recalculate_failed),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.AccountBalanceWallet, contentDescription = stringResource(R.string.recalculate_cd), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(stringResource(R.string.recalculate_balances), fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.recalculate_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -274,9 +434,9 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Download, contentDescription = "Check for Updates", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.check_updates), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text("Check for Updates", fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.check_updates), fontWeight = FontWeight.Medium)
                 }
             }
 
@@ -284,16 +444,16 @@ fun SettingsScreen(
 
             Text(
                 text = stringResource(R.string.budgeting_rule_header),
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Text("Adjust your target allocations. Must equal 100%.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.rule_help), color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             // Needs Slider
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Needs", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.needs), fontWeight = FontWeight.Bold)
                     Text("${needs.roundToInt()}%")
                 }
                 Slider(
@@ -307,7 +467,7 @@ fun SettingsScreen(
             // Wants Slider
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Wants", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.wants), fontWeight = FontWeight.Bold)
                     Text("${wants.roundToInt()}%")
                 }
                 Slider(
@@ -321,7 +481,7 @@ fun SettingsScreen(
             // Savings Slider
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Savings", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.savings), fontWeight = FontWeight.Bold)
                     Text("${savings.roundToInt()}%")
                 }
                 Slider(
@@ -336,14 +496,37 @@ fun SettingsScreen(
 
             Button(
                 onClick = { viewModel.updateRule(needs.roundToInt(), wants.roundToInt(), savings.roundToInt()) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                 enabled = isValid
             ) {
                 Text(
-                    if (isValid) "Save Rule" else "Total is $total%, must be 100%",
-                    fontSize = 16.sp
+                    if (isValid) stringResource(R.string.save_rule) else stringResource(R.string.save_rule_invalid, total),
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
         }
+    }
+
+    pendingImportUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingImportUri = null },
+            title = { Text(stringResource(R.string.replace_all_title)) },
+            text = { Text(stringResource(R.string.replace_all_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingImportUri = null
+                    viewModel.importData(context, uri) { success ->
+                        Toast.makeText(context, if (success) context.getString(R.string.import_success) else context.getString(R.string.import_failed), Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Text(stringResource(R.string.import_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImportUri = null }) {
+                    Text(stringResource(R.string.cancel_button))
+                }
+            }
+        )
     }
 }

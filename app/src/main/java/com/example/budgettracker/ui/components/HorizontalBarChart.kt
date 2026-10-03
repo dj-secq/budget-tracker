@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.sp
 
 data class BarChartData(
     val label: String,
-    val value: Double,
+    val value: Long,
     val color: Color,
     val percentageText: String? = null
 )
@@ -32,7 +32,7 @@ fun HorizontalBarChart(
     data: List<BarChartData>,
     modifier: Modifier = Modifier
 ) {
-    val maxVal = data.maxOfOrNull { it.value } ?: 0.0
+    val maxVal = data.maxOfOrNull { it.value } ?: 0L
     val animatedProgress = remember { Animatable(0f) }
 
     LaunchedEffect(data) {
@@ -44,7 +44,7 @@ fun HorizontalBarChart(
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         data.forEach { item ->
-            val fraction = if (maxVal > 0) (item.value / maxVal).toFloat() else 0f
+            val fraction = if (maxVal > 0L) (item.value.toDouble() / maxVal.toDouble()).toFloat() else 0f
             
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(

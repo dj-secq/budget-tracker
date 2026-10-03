@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.budgettracker.data.local.entity.Account
 import com.example.budgettracker.data.local.entity.Category
-import com.example.budgettracker.data.local.entity.CategoryType
 import com.example.budgettracker.data.local.entity.ExpenseClassification
 import com.example.budgettracker.data.local.entity.Transaction
 import com.example.budgettracker.data.repository.BudgetRepository
@@ -15,7 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 class EditTransactionViewModel(
     private val repository: BudgetRepository,
@@ -30,14 +28,12 @@ class EditTransactionViewModel(
 
     val isSaving = MutableStateFlow(false)
     val transactionFlow = MutableStateFlow<Transaction?>(null)
-    
-    val showOverBudgetWarning = MutableStateFlow<Pair<Double, Boolean>?>(null)
-    val showBucketWarning = MutableStateFlow<Pair<String, Double>?>(null)
+    val showOverBudgetWarning = MutableStateFlow<Pair<Long, Boolean>?>(null)
+    val showBucketWarning = MutableStateFlow<Triple<String, Long, Boolean>?>(null)
 
     fun loadTransaction(transactionId: Long) {
         viewModelScope.launch {
-            val tx = repository.getTransactionById(transactionId)
-            transactionFlow.value = tx
+            transactionFlow.value = repository.getTransactionById(transactionId)
         }
     }
 
@@ -45,100 +41,59 @@ class EditTransactionViewModel(
         transactionId: Long,
         accountId: Long,
         categoryId: Long,
-        amount: Double,
+        amount: Long,
         note: String,
         timestamp: Long,
         classification: ExpenseClassification,
         onComplete: () -> Unit
     ) {
+        if (isSaving.value || amount <= 0L) return
+        val oldTransaction = transactionFlow.value ?: return
+        if (oldTransaction.id != transactionId) return
+        isSaving.value = true
         viewModelScope.launch {
-            val oldTransaction = transactionFlow.value ?: return@launch
-            
-            // Limit checks
-            val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
-            val month = calendar.get(Calendar.MONTH) + 1
-            val year = calendar.get(Calendar.YEAR)
-            
-            // Note: When editing, checking budget limits is slightly complex because we need to subtract the old amount if the category is the same.
-            // For simplicity, we fetch the current spent, subtract old amount (if same category), add new amount, and check against limit.
-            val limits = repository.getBudgetLimitsForMonth(month, year).first()
-            var limit = limits.find { it.categoryId == categoryId }?.assignedAmount ?: 0.0
-            val prefs = preferencesRepository.generalPreferencesFlow.first()
-            
-            if (limit > 0) {
-                if (prefs.rolloverBudgetsEnabled) {
-                    limit += repository.getRolloverAmount(categoryId, month, year)
-                }
-                val currentSpent = repository.getTotalSpentByCategory(categoryId, month, year).first() ?: 0.0
-                // Adjust spent if the old transaction was in the same month/year and category
-                val oldCalendar = Calendar.getInstance().apply { timeInMillis = oldTransaction.timestamp }
-                val oldMonth = oldCalendar.get(Calendar.MONTH) + 1
-                val oldYear = oldCalendar.get(Calendar.YEAR)
-                
-                var adjustedSpent = currentSpent
-                if (oldMonth == month && oldYear == year && oldTransaction.categoryId == categoryId) {
-                    adjustedSpent -= oldTransaction.amount
-                }
-                
-                if (adjustedSpent + amount > limit) {
-                    showOverBudgetWarning.value = Pair((adjustedSpent + amount) - limit, prefs.strictLimitsEnabled)
+            try {
+                val prefs = preferencesRepository.generalPreferencesFlow.first()
+                val rule = preferencesRepository.budgetRulePreferencesFlow.first()
+                val evaluation = repository.evaluateSpend(
+                    categoryId = categoryId,
+                    amount = amount,
+                    timestamp = timestamp,
+                    classification = classification,
+                    strict = prefs.strictLimitsEnabled,
+                    rolloverEnabled = prefs.rolloverBudgetsEnabled,
+                    needsPercent = rule.needsPercent,
+                    wantsPercent = rule.wantsPercent,
+                    savingsPercent = rule.savingsPercent,
+                    replacing = oldTransaction
+                )
+                if (evaluation.categoryExceeded) {
+                    showOverBudgetWarning.value = evaluation.categoryExcess to prefs.strictLimitsEnabled
                     return@launch
                 }
+                if (evaluation.bucketExceeded) {
+                    showBucketWarning.value = Triple(
+                        evaluation.bucketName ?: "Budget",
+                        evaluation.bucketExcess,
+                        prefs.strictLimitsEnabled
+                    )
+                    return@launch
+                }
+                repository.updateTransaction(
+                    oldTransaction.copy(
+                        accountId = accountId,
+                        categoryId = categoryId,
+                        amount = amount,
+                        note = note,
+                        timestamp = timestamp,
+                        classification = classification
+                    )
+                )
+                preferencesRepository.setLastAccountId(accountId)
+                onComplete()
+            } finally {
+                isSaving.value = false
             }
-
-            // 2. Check Bucket Limit (Needs/Wants/Savings)
-            if (classification != ExpenseClassification.NONE) {
-                val transactions = repository.getTransactionsForMonth(month, year).first()
-                val incomeCategories = repository.getAllCategories().first().filter { it.type == CategoryType.INCOME }
-                var totalIncome = transactions.filter { tx -> incomeCategories.any { it.id == tx.categoryId } }.sumOf { it.amount }
-                
-                // Adjust total income if the old transaction was an income and in the same month
-                val oldCalendar = Calendar.getInstance().apply { timeInMillis = oldTransaction.timestamp }
-                if (oldCalendar.get(Calendar.MONTH) + 1 == month && oldCalendar.get(Calendar.YEAR) == year) {
-                    if (incomeCategories.any { it.id == oldTransaction.categoryId }) {
-                        totalIncome -= oldTransaction.amount
-                    }
-                }
-                
-                // If the new transaction is an income, add it to the total
-                if (incomeCategories.any { it.id == categoryId }) {
-                    totalIncome += amount
-                }
-
-                if (totalIncome > 0 && !incomeCategories.any { it.id == categoryId }) {
-                    val rule = preferencesRepository.budgetRulePreferencesFlow.first()
-                    val bucketPercent = when (classification) {
-                        ExpenseClassification.NEED -> rule.needsPercent
-                        ExpenseClassification.WANT -> rule.wantsPercent
-                        ExpenseClassification.SAVING -> rule.savingsPercent
-                        else -> 0
-                    }
-                    val bucketLimit = totalIncome * (bucketPercent / 100.0)
-                    
-                    var bucketSpent = transactions.filter { it.classification == classification }.sumOf { it.amount }
-                    if (oldCalendar.get(Calendar.MONTH) + 1 == month && oldCalendar.get(Calendar.YEAR) == year && oldTransaction.classification == classification) {
-                        bucketSpent -= oldTransaction.amount
-                    }
-                    
-                    if (bucketSpent + amount > bucketLimit) {
-                        showBucketWarning.value = Pair(classification.name, (bucketSpent + amount) - bucketLimit)
-                        return@launch
-                    }
-                }
-            }
-
-            isSaving.value = true
-            val updatedTransaction = oldTransaction.copy(
-                accountId = accountId,
-                categoryId = categoryId,
-                amount = amount,
-                note = note,
-                timestamp = timestamp,
-                classification = classification
-            )
-            repository.updateTransaction(updatedTransaction)
-            isSaving.value = false
-            onComplete()
         }
     }
 
@@ -146,26 +101,47 @@ class EditTransactionViewModel(
         transactionId: Long,
         accountId: Long,
         categoryId: Long,
-        amount: Double,
+        amount: Long,
         note: String,
         timestamp: Long,
         classification: ExpenseClassification,
         onComplete: () -> Unit
     ) {
+        if (isSaving.value || amount <= 0L) return
+        val oldTransaction = transactionFlow.value ?: return
+        if (oldTransaction.id != transactionId) return
+        isSaving.value = true
         viewModelScope.launch {
-            val oldTransaction = transactionFlow.value ?: return@launch
-            isSaving.value = true
-            val updatedTransaction = oldTransaction.copy(
-                accountId = accountId,
-                categoryId = categoryId,
-                amount = amount,
-                note = note,
-                timestamp = timestamp,
-                classification = classification
-            )
-            repository.updateTransaction(updatedTransaction)
-            isSaving.value = false
-            onComplete()
+            try {
+                repository.updateTransaction(
+                    oldTransaction.copy(
+                        accountId = accountId,
+                        categoryId = categoryId,
+                        amount = amount,
+                        note = note,
+                        timestamp = timestamp,
+                        classification = classification
+                    )
+                )
+                preferencesRepository.setLastAccountId(accountId)
+                onComplete()
+            } finally {
+                isSaving.value = false
+            }
+        }
+    }
+
+    fun deleteTransaction(onComplete: () -> Unit) {
+        val transaction = transactionFlow.value ?: return
+        if (isSaving.value) return
+        isSaving.value = true
+        viewModelScope.launch {
+            try {
+                repository.deleteTransaction(transaction)
+                onComplete()
+            } finally {
+                isSaving.value = false
+            }
         }
     }
 

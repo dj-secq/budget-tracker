@@ -23,11 +23,19 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.res.stringResource
 import com.example.budgettracker.R
+import com.example.budgettracker.domain.Money
+import com.example.budgettracker.domain.localDateFromPickerUtc
+import com.example.budgettracker.domain.localNoon
+import com.example.budgettracker.ui.utils.CurrencyUtils
 import com.example.budgettracker.data.local.entity.CategoryType
 import com.example.budgettracker.data.local.entity.ExpenseClassification
 import com.example.budgettracker.ui.theme.CategoryColors
+import com.example.budgettracker.ui.theme.WalletPalette
+import com.example.budgettracker.ui.utils.label
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,7 +79,7 @@ fun EditTransactionScreen(
     LaunchedEffect(transaction, categories) {
         if (!isInitialized && transaction != null && categories.isNotEmpty()) {
             val tx = transaction!!
-            amount = if (tx.amount % 1.0 == 0.0) tx.amount.toLong().toString() else tx.amount.toString()
+            amount = Money.toInputString(tx.amount)
             note = tx.note
             selectedCategoryId = tx.categoryId
             selectedAccountId = tx.accountId
@@ -87,16 +95,31 @@ fun EditTransactionScreen(
     }
     
     val filteredCategories = categories.filter { it.type == transactionType }
+    val loaded = transaction
+    val formDirty = isInitialized && loaded != null && (
+        amount != Money.toInputString(loaded.amount) ||
+            note != loaded.note ||
+            selectedCategoryId != loaded.categoryId ||
+            selectedAccountId != loaded.accountId ||
+            selectedDateMillis != loaded.timestamp ||
+            selectedClassification != loaded.classification
+        )
+    var confirmLeave by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    BackHandler(enabled = formDirty) { confirmLeave = true }
+    fun requestLeave() {
+        if (formDirty) confirmLeave = true else onNavigateBack()
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Edit Transaction") },
+                title = { Text(stringResource(R.string.edit_transaction)) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = { requestLeave() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -115,7 +138,8 @@ fun EditTransactionScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding())
-                .padding(24.dp)
+                .padding(horizontal = 24.dp)
+                .imePadding()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -127,7 +151,7 @@ fun EditTransactionScreen(
                 prefix = { Text("₱") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                textStyle = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
             )
 
             // Transaction Type Toggle
@@ -138,12 +162,12 @@ fun EditTransactionScreen(
                 Tab(
                     selected = transactionType == CategoryType.EXPENSE,
                     onClick = { transactionType = CategoryType.EXPENSE; selectedCategoryId = null },
-                    text = { Text("Expense", fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(R.string.expense), fontWeight = FontWeight.Bold) }
                 )
                 Tab(
                     selected = transactionType == CategoryType.INCOME,
                     onClick = { transactionType = CategoryType.INCOME; selectedCategoryId = null },
-                    text = { Text("Income", fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(R.string.income), fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -154,17 +178,19 @@ fun EditTransactionScreen(
                     val isSelected = selectedAccountId == account.id
                     val color = Color(account.colorArgb)
                     Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
+                            .heightIn(min = 48.dp)
                             .background(
                                 color = if (isSelected) color else MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(16.dp)
                             )
                             .clickable { selectedAccountId = account.id }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 16.dp)
                     ) {
                         Text(
                             text = account.name,
-                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isSelected) WalletPalette.contentOn(account.colorArgb) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -190,11 +216,11 @@ fun EditTransactionScreen(
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .aspectRatio(1f)
+                                    .heightIn(min = 88.dp)
                                     .clickable { selectedCategoryId = category.id }
                             ) {
                                 Column(
-                                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
@@ -206,10 +232,11 @@ fun EditTransactionScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = category.name,
-                                        fontSize = 12.sp,
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        softWrap = true,
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
@@ -223,7 +250,7 @@ fun EditTransactionScreen(
 
             // Classification Selection (Only for Expenses)
             if (transactionType == CategoryType.EXPENSE) {
-                Text("Classification", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.classification), fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val classifications = listOf(
                         ExpenseClassification.NEED,
@@ -235,7 +262,7 @@ fun EditTransactionScreen(
                         FilterChip(
                             selected = selectedClassification == clazz,
                             onClick = { selectedClassification = clazz },
-                            label = { Text(clazz.name) }
+                            label = { Text(clazz.label()) }
                         )
                     }
                 }
@@ -250,17 +277,14 @@ fun EditTransactionScreen(
                 onValueChange = { },
                 label = { Text(stringResource(R.string.date_label)) },
                 readOnly = true,
-                trailingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Select Date") },
+                trailingIcon = {
+                    IconButton(onClick = { showDatePicker = true }) {
+                        Icon(Icons.Default.DateRange, contentDescription = stringResource(R.string.select_date))
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showDatePicker = true },
-                enabled = false,
-                colors = OutlinedTextFieldDefaults.colors(
-                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledBorderColor = MaterialTheme.colorScheme.outline,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    .clickable { showDatePicker = true }
             )
             
             if (showDatePicker) {
@@ -269,11 +293,11 @@ fun EditTransactionScreen(
                     confirmButton = {
                         TextButton(onClick = {
                             datePickerState.selectedDateMillis?.let {
-                                selectedDateMillis = it
+                                selectedDateMillis = localNoon(localDateFromPickerUtc(it))
                             }
                             showDatePicker = false
                         }) {
-                            Text("OK")
+                            Text(stringResource(R.string.ok))
                         }
                     },
                     dismissButton = {
@@ -296,11 +320,28 @@ fun EditTransactionScreen(
             
             Spacer(modifier = Modifier.weight(1f))
 
+            val saveEnabled = amount.isNotEmpty() && selectedCategoryId != null && selectedAccountId != null && !isSaving
+            val saveHint = when {
+                isSaving -> stringResource(R.string.saving_hint)
+                Money.parsePesos(amount) == null || (Money.parsePesos(amount) ?: 0L) <= 0L -> stringResource(R.string.amount_required)
+                selectedAccountId == null -> stringResource(R.string.choose_wallet)
+                selectedCategoryId == null -> stringResource(R.string.choose_category)
+                else -> null
+            }
+
+            OutlinedButton(
+                onClick = { confirmDelete = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isSaving
+            ) {
+                Text(stringResource(R.string.delete_transaction))
+            }
+
             // Save Button
             Button(
                 onClick = {
-                    val parsedAmount = amount.toDoubleOrNull()
-                    if (parsedAmount != null && selectedCategoryId != null && selectedAccountId != null) {
+                    val parsedAmount = Money.parsePesos(amount)
+                    if (parsedAmount != null && parsedAmount > 0L && selectedCategoryId != null && selectedAccountId != null) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (transactionType == CategoryType.EXPENSE) {
                             viewModel.onConfirmSave(
@@ -329,26 +370,92 @@ fun EditTransactionScreen(
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = amount.isNotEmpty() && selectedCategoryId != null && selectedAccountId != null && !isSaving,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                enabled = saveEnabled,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text(stringResource(R.string.save_transaction), fontSize = 18.sp, color = Color.Black)
+                Text(stringResource(R.string.save_transaction), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimary)
+            }
+            if (!saveEnabled && saveHint != null) {
+                Text(saveHint, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
 
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text(stringResource(R.string.discard_changes_title)) },
+            text = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmLeave = false
+                    onNavigateBack()
+                }) { Text(stringResource(R.string.discard)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeave = false }) { Text(stringResource(R.string.keep_editing)) }
+            }
+        )
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.confirm_deletion)) },
+            text = { Text(stringResource(R.string.delete_confirmation_msg)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    viewModel.deleteTransaction { onNavigateBack() }
+                }) { Text(stringResource(R.string.delete_button)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel_button)) }
+            }
+        )
+    }
+
     // Bucket warning dialog
-    bucketWarning?.let { (bucketName, excess) ->
+    bucketWarning?.let { (bucketName, excess, isStrict) ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissWarnings() },
-            title = { Text("$bucketName Cap Reached") },
-            text = { Text("This edit exceeds your $bucketName allocation by ₱${String.format(Locale.getDefault(), "%.2f", excess)}.\n\nPlease adjust the amount or increase your income.") },
+            title = { Text(stringResource(R.string.cap_reached, bucketName)) },
+            text = {
+                Text(
+                    if (isStrict) {
+                        "This edit exceeds your $bucketName allocation by ${CurrencyUtils.formatAmount(excess)}.\n\nStrict limits are on, so this cannot be saved."
+                    } else {
+                        "This edit exceeds your $bucketName allocation by ${CurrencyUtils.formatAmount(excess)}.\n\nSave it anyway?"
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { viewModel.dismissWarnings() }) {
-                    Text("OK")
+                    Text(if (isStrict) stringResource(R.string.ok) else stringResource(R.string.cancel_button))
                 }
-            }
+            },
+            dismissButton = if (!isStrict) {
+                {
+                    TextButton(onClick = {
+                        viewModel.dismissWarnings()
+                        val parsedAmount = Money.parsePesos(amount)
+                        if (parsedAmount != null && parsedAmount > 0L && selectedCategoryId != null && selectedAccountId != null) {
+                            viewModel.saveTransactionWithoutLimits(
+                                transactionId = transactionId,
+                                accountId = selectedAccountId!!,
+                                categoryId = selectedCategoryId!!,
+                                amount = parsedAmount,
+                                note = note,
+                                timestamp = selectedDateMillis,
+                                classification = selectedClassification
+                            ) {
+                                onNavigateBack()
+                            }
+                        }
+                    }) { Text(stringResource(R.string.save_anyway)) }
+                }
+            } else null
         )
     }
 
@@ -356,25 +463,25 @@ fun EditTransactionScreen(
     overBudgetWarning?.let { (excess, isStrict) ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissWarnings() },
-            title = { Text("Over Budget") },
+            title = { Text(stringResource(R.string.over_budget)) },
             text = { 
                 if (isStrict) {
-                    Text("This edit exceeds your budget for this category by ₱${String.format(Locale.getDefault(), "%.2f", excess)}.\n\nStrict budget limits are enforced. You cannot save this transaction.")
+                    Text(stringResource(R.string.edit_over_budget_blocked, CurrencyUtils.formatAmount(excess)))
                 } else {
-                    Text("This edit exceeds your budget for this category by ₱${String.format(Locale.getDefault(), "%.2f", excess)}.\n\nDo you want to save it anyway?")
+                    Text(stringResource(R.string.edit_over_budget_confirm, CurrencyUtils.formatAmount(excess)))
                 }
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.dismissWarnings() }) {
-                    Text("OK")
+                    Text(stringResource(R.string.ok))
                 }
             },
             dismissButton = if (!isStrict) {
                 {
                     TextButton(onClick = {
                         viewModel.dismissWarnings()
-                        val parsedAmount = amount.toDoubleOrNull()
-                        if (parsedAmount != null && selectedCategoryId != null && selectedAccountId != null) {
+                        val parsedAmount = Money.parsePesos(amount)
+                        if (parsedAmount != null && parsedAmount > 0L && selectedCategoryId != null && selectedAccountId != null) {
                             viewModel.saveTransactionWithoutLimits(
                                 transactionId = transactionId,
                                 accountId = selectedAccountId!!,
@@ -388,7 +495,7 @@ fun EditTransactionScreen(
                             }
                         }
                     }) {
-                        Text("Save Anyway")
+                        Text(stringResource(R.string.save_anyway_title))
                     }
                 }
             } else null

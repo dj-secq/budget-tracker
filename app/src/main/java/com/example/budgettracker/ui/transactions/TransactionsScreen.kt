@@ -28,6 +28,11 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.DatePickerDialog
@@ -51,7 +56,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.budgettracker.domain.endOfLocalDay
+import com.example.budgettracker.domain.localDateFromPickerUtc
+import com.example.budgettracker.domain.localDateOf
+import com.example.budgettracker.domain.startOfLocalDay
+import com.example.budgettracker.ui.theme.EmeraldGreen
 import com.example.budgettracker.ui.utils.CategoryIconHelper
+import com.example.budgettracker.ui.utils.CurrencyUtils
+import kotlinx.coroutines.launch
+import java.time.format.DateTimeFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -61,23 +74,31 @@ import java.util.Locale
 fun TransactionsScreen(
     viewModel: TransactionsViewModel,
     onEditTransaction: (Long) -> Unit,
+    onAddTransaction: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     
     var transactionToDelete by remember { mutableStateOf<com.example.budgettracker.data.local.entity.Transaction?>(null) }
     
     var showFilterSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val dayFormat = remember { DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()) }
 
     val groupedTransactions = remember(uiState.transactions) {
-        uiState.transactions.groupBy {
-            SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Date(it.transaction.timestamp))
-        }
+        uiState.transactions.groupBy { dayFormat.format(localDateOf(it.transaction.timestamp)) }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAddTransaction) {
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_transaction_short))
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tab_transactions), fontWeight = FontWeight.Bold) },
@@ -85,7 +106,7 @@ fun TransactionsScreen(
                     IconButton(onClick = { showFilterSheet = true }) {
                         Icon(
                             imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filter",
+                            contentDescription = stringResource(R.string.filter_cd),
                             tint = if (uiState.filterCategoryIds.isNotEmpty() || uiState.filterAccountId != null || uiState.startDate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -106,7 +127,14 @@ fun TransactionsScreen(
                 value = uiState.searchQuery,
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 placeholder = { Text(stringResource(R.string.search_transactions)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search_cd)) },
+                trailingIcon = {
+                    if (uiState.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.clear_search))
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, top = 8.dp),
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
@@ -137,7 +165,7 @@ fun TransactionsScreen(
                         item {
                             Text(
                                 text = date,
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
@@ -170,7 +198,7 @@ fun TransactionsScreen(
                                         if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
                                             Icon(
                                                 imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete Transaction",
+                                                contentDescription = stringResource(R.string.delete_transaction_cd),
                                                 tint = Color.White
                                             )
                                         }
@@ -206,13 +234,20 @@ fun TransactionsScreen(
                                                 Text(
                                                     text = item.categoryName,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    fontSize = 12.sp
+                                                    style = MaterialTheme.typography.labelMedium
                                                 )
+                                                if (item.accountName.isNotBlank()) {
+                                                    Text(
+                                                        text = " • ${item.accountName}",
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
                                                 if (item.transaction.classification != com.example.budgettracker.data.local.entity.ExpenseClassification.NONE) {
                                                     Text(
                                                         text = " • ${item.transaction.classification.name}",
                                                         color = MaterialTheme.colorScheme.primary,
-                                                        fontSize = 12.sp,
+                                                        style = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                 }
@@ -220,12 +255,23 @@ fun TransactionsScreen(
                                         }
                                         val isIncome = item.categoryType == com.example.budgettracker.data.local.entity.CategoryType.INCOME
                                         Text(
-                                            text = "${if(isIncome) "+" else "-"}${com.example.budgettracker.ui.utils.CurrencyUtils.formatAmount(Math.abs(item.transaction.amount))}", 
-                                            color = if (isIncome) com.example.budgettracker.ui.theme.EmeraldGreen else MaterialTheme.colorScheme.onSurface, 
-                                            fontWeight = FontWeight.Bold
+                                            text = "${if (isIncome) "+" else "-"}${CurrencyUtils.formatAmount(item.transaction.amount)}",
+                                            color = if (isIncome) EmeraldGreen else MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(start = 12.dp)
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                    if (uiState.canLoadMore) {
+                        item {
+                            TextButton(
+                                onClick = { viewModel.loadMore() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.load_more))
                             }
                         }
                     }
@@ -244,7 +290,17 @@ fun TransactionsScreen(
                 TextButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.deleteTransaction(transaction)
+                        viewModel.deleteTransaction(transaction) { removed ->
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Transaction deleted",
+                                    actionLabel = "Undo"
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.restoreTransactions(removed)
+                                }
+                            }
+                        }
                         transactionToDelete = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -282,7 +338,7 @@ fun TransactionsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(stringResource(R.string.filter_title), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.filter_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { 
                         tempCategoryIds = emptySet()
                         tempAccountId = null
@@ -300,7 +356,7 @@ fun TransactionsScreen(
                         FilterChip(
                             selected = tempCategoryIds.isEmpty(),
                             onClick = { tempCategoryIds = emptySet() },
-                            label = { Text("All") }
+                            label = { Text(stringResource(R.string.filter_all)) }
                         )
                     }
                     items(uiState.categories) { category ->
@@ -324,14 +380,16 @@ fun TransactionsScreen(
                         FilterChip(
                             selected = tempAccountId == null,
                             onClick = { tempAccountId = null },
-                            label = { Text("All") }
+                            label = { Text(stringResource(R.string.filter_all)) },
+                            modifier = Modifier.heightIn(min = 48.dp)
                         )
                     }
                     items(uiState.accounts) { account ->
                         FilterChip(
                             selected = tempAccountId == account.id,
                             onClick = { tempAccountId = account.id },
-                            label = { Text(account.name) }
+                            label = { Text(account.name) },
+                            modifier = Modifier.heightIn(min = 48.dp)
                         )
                     }
                 }
@@ -355,10 +413,10 @@ fun TransactionsScreen(
                     ) {
                         Text(tempStartDate?.let { 
                             java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault()).format(java.util.Date(it))
-                        } ?: "Start Date")
+                        } ?: stringResource(R.string.start_date))
                     }
 
-                    Text("to")
+                    Text(stringResource(R.string.filter_to))
 
                     OutlinedButton(
                         onClick = { showEndDatePicker = true },
@@ -375,9 +433,11 @@ fun TransactionsScreen(
                         onDismissRequest = { showStartDatePicker = false },
                         confirmButton = {
                             TextButton(onClick = {
-                                tempStartDate = startState.selectedDateMillis
+                                tempStartDate = startState.selectedDateMillis?.let {
+                                    startOfLocalDay(localDateFromPickerUtc(it))
+                                }
                                 showStartDatePicker = false
-                            }) { Text("OK") }
+                            }) { Text(stringResource(R.string.ok)) }
                         }
                     ) { DatePicker(state = startState) }
                 }
@@ -387,9 +447,11 @@ fun TransactionsScreen(
                         onDismissRequest = { showEndDatePicker = false },
                         confirmButton = {
                             TextButton(onClick = {
-                                tempEndDate = endState.selectedDateMillis
+                                tempEndDate = endState.selectedDateMillis?.let {
+                                    endOfLocalDay(localDateFromPickerUtc(it))
+                                }
                                 showEndDatePicker = false
-                            }) { Text("OK") }
+                            }) { Text(stringResource(R.string.ok)) }
                         }
                     ) { DatePicker(state = endState) }
                 }

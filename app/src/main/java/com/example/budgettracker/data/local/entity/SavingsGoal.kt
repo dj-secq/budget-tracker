@@ -8,10 +8,10 @@ data class SavingsGoal(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val name: String,
-    val targetAmount: Double,
-    val currentAmount: Double = 0.0,
+    val targetAmount: Long,
+    val currentAmount: Long = 0,
     val iconName: String? = null,
     val targetDate: Long? = null,
     val contributionFrequency: String? = null,
-    val contributionAmount: Double? = null
+    val contributionAmount: Long? = null
 )

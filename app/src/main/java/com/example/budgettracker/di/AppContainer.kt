@@ -1,6 +1,7 @@
 package com.example.budgettracker.di
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import androidx.room.Room
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -8,6 +9,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.budgettracker.data.local.AppDatabase
+import com.example.budgettracker.data.local.MIGRATION_10_11
+import com.example.budgettracker.data.local.MIGRATION_11_12
+import com.example.budgettracker.data.local.MIGRATION_12_13
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.data.repository.UserPreferencesRepository
 
@@ -38,14 +42,15 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
             }
         }
 
-        Room.databaseBuilder(
+        val builder = Room.databaseBuilder(
             context,
             AppDatabase::class.java,
             "budget_tracker_db"
-        )
-         .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
-         .fallbackToDestructiveMigration()
-         .build()
+        ).addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            builder.fallbackToDestructiveMigration()
+        }
+        builder.build()
     }
 
     override val budgetRepository: BudgetRepository by lazy {

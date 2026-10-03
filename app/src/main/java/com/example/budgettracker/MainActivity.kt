@@ -1,8 +1,8 @@
 package com.example.budgettracker
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,6 +17,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -65,19 +66,72 @@ import com.example.budgettracker.ui.goals.GoalsScreen
 import com.example.budgettracker.ui.goals.GoalsViewModel
 import com.example.budgettracker.ui.edit.EditTransactionScreen
 import com.example.budgettracker.ui.edit.EditTransactionViewModel
+import com.example.budgettracker.widget.NextBillWidget
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import com.example.budgettracker.ui.lock.AppLockScreen
+import com.example.budgettracker.ui.lock.DeviceLock
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+    private var unlocked by mutableStateOf(false)
+    private var awaitingCredential = false
+    private var biometricPrompt: BiometricPrompt? = null
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         // Permission result handled
+    }
+
+    private val credentialLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        awaitingCredential = false
+        if (result.resultCode == RESULT_OK) unlocked = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        NextBillWidget.refresh(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        NextBillWidget.refresh(this)
+        if (!awaitingCredential) unlocked = false
+    }
+
+    private fun requestUnlock() {
+        if (awaitingCredential) return
+        if (!DeviceLock.canLock(this)) {
+            unlocked = true
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            awaitingCredential = true
+            biometricPrompt = DeviceLock.prompt(
+                activity = this,
+                onSuccess = {
+                    awaitingCredential = false
+                    unlocked = true
+                },
+                onError = { awaitingCredential = false }
+            )
+        } else {
+            val intent = DeviceLock.credentialIntent(this)
+            if (intent == null) {
+                unlocked = true
+                return
+            }
+            awaitingCredential = true
+            credentialLauncher.launch(intent)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,25 +149,42 @@ class MainActivity : ComponentActivity() {
         setContent {
             val userPreferences = appContainer.userPreferencesRepository.budgetRulePreferencesFlow
                 .collectAsState(initial = null).value
-                
-            BudgetTrackerTheme(themeMode = userPreferences?.themeMode ?: com.example.budgettracker.data.repository.ThemeMode.SYSTEM) {
-                BudgetApp(appContainer)
+            val generalPreferences = appContainer.userPreferencesRepository.generalPreferencesFlow
+                .collectAsState(initial = null).value
+            val resources = androidx.compose.ui.platform.LocalContext.current.resources
+
+            BudgetTrackerTheme(
+                themeMode = userPreferences?.themeMode ?: com.example.budgettracker.data.repository.ThemeMode.SYSTEM,
+                accent = userPreferences?.accent ?: com.example.budgettracker.data.repository.Accent.EMERALD,
+                dynamicColor = userPreferences?.dynamicColor == true
+            ) {
+                when {
+                    generalPreferences == null -> Unit
+                    generalPreferences.appLockEnabled && !unlocked -> {
+                        AppLockScreen(onUnlock = { requestUnlock() })
+                        LaunchedEffect(Unit) { requestUnlock() }
+                    }
+                    else -> BudgetApp(appContainer, resources)
+                }
             }
         }
     }
 }
 
 @Composable
-fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
+fun BudgetApp(
+    appContainer: com.example.budgettracker.di.AppContainer,
+    resources: android.content.res.Resources
+) {
     val navController = rememberNavController()
     
     // Provide ViewModel factory
-    val factory = remember {
+    val factory = remember(resources) {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-                    return HomeViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
+                    return HomeViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository, resources) as T
                 }
                 if (modelClass.isAssignableFrom(AddTransactionViewModel::class.java)) {
                     return AddTransactionViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
@@ -122,16 +193,23 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                     return EditTransactionViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
                 }
                 if (modelClass.isAssignableFrom(AnalyticsViewModel::class.java)) {
-                    return AnalyticsViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
+                    return AnalyticsViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository, resources) as T
                 }
                 if (modelClass.isAssignableFrom(WrappedViewModel::class.java)) {
-                    return WrappedViewModel(appContainer.budgetRepository) as T
+                    return WrappedViewModel(
+                        appContainer.budgetRepository,
+                        appContainer.userPreferencesRepository,
+                        resources
+                    ) as T
                 }
                 if (modelClass.isAssignableFrom(AssignBudgetViewModel::class.java)) {
                     return AssignBudgetViewModel(appContainer.budgetRepository, appContainer.userPreferencesRepository) as T
                 }
                 if (modelClass.isAssignableFrom(DebtTrackerViewModel::class.java)) {
-                    return DebtTrackerViewModel(appContainer.budgetRepository) as T
+                    return DebtTrackerViewModel(
+                        appContainer.budgetRepository,
+                        appContainer.userPreferencesRepository
+                    ) as T
                 }
                 if (modelClass.isAssignableFrom(TransactionsViewModel::class.java)) {
                     return TransactionsViewModel(appContainer.budgetRepository) as T
@@ -158,20 +236,22 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
     
 
     val routeOrder = listOf("home", "transactions", "analytics", "goals")
-    fun isMainTab(route: String?) = routeOrder.contains(route?.substringBefore("/"))
-    fun getRouteIndex(route: String?) = routeOrder.indexOf(route?.substringBefore("/")).let { if (it == -1) 0 else it }
+    fun routeBase(route: String?) = route?.substringBefore("?")?.substringBefore("/")
+    fun isMainTab(route: String?) = routeOrder.contains(routeBase(route))
+    fun getRouteIndex(route: String?) = routeOrder.indexOf(routeBase(route)).let { if (it == -1) 0 else it }
+
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+    val showBottomBar = isMainTab(currentDestination?.route)
 
     Scaffold(
         bottomBar = {
-            // ... (bottom bar code remains same)
+            if (showBottomBar) {
             NavigationBar {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
-                
                 NavigationBarItem(
                     icon = { Icon(Icons.Filled.Home, contentDescription = stringResource(R.string.tab_home)) },
                     label = { Text(stringResource(R.string.tab_home)) },
-                    selected = currentDestination?.hierarchy?.any { it.route == "home" } == true,
+                    selected = routeBase(currentDestination?.route) == "home",
                     onClick = {
                         if (currentDestination?.route != "home") {
                             if (!isMainTab(currentDestination?.route)) {
@@ -189,7 +269,7 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                 NavigationBarItem(
                     icon = { Icon(Icons.Filled.List, contentDescription = stringResource(R.string.tab_transactions)) },
                     label = { Text(stringResource(R.string.tab_transactions)) },
-                    selected = currentDestination?.hierarchy?.any { it.route == "transactions" } == true,
+                    selected = routeBase(currentDestination?.route) == "transactions",
                     onClick = {
                         navController.navigate("transactions") {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -201,7 +281,7 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                 NavigationBarItem(
                     icon = { Icon(Icons.Filled.PieChart, contentDescription = stringResource(R.string.tab_analytics)) },
                     label = { Text(stringResource(R.string.tab_analytics)) },
-                    selected = currentDestination?.hierarchy?.any { it.route == "analytics" } == true,
+                    selected = routeBase(currentDestination?.route) == "analytics",
                     onClick = {
                         navController.navigate("analytics") {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -213,7 +293,7 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                 NavigationBarItem(
                     icon = { Icon(Icons.Filled.Star, contentDescription = stringResource(R.string.tab_goals)) },
                     label = { Text(stringResource(R.string.tab_goals)) },
-                    selected = currentDestination?.hierarchy?.any { it.route == "goals" } == true,
+                    selected = routeBase(currentDestination?.route) == "goals",
                     onClick = {
                         navController.navigate("goals") {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -222,6 +302,7 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                         }
                     }
                 )
+            }
             }
         },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
@@ -263,14 +344,34 @@ fun BudgetApp(appContainer: com.example.budgettracker.di.AppContainer) {
                     onNavigateToAddTransaction = { navController.navigate("add_transaction") },
                     onNavigateToAssignBudget = { navController.navigate("assign_budget") },
                     onNavigateToSettings = { navController.navigate("settings") },
-                    onNavigateToDebtTracker = { navController.navigate("debt_tracker") }
+                    onNavigateToDebtTracker = { navController.navigate("debt_tracker") },
+                    onNavigateToRecurring = { navController.navigate("recurring_transactions") },
+                    onOpenWallet = { accountId ->
+                        navController.navigate("transactions?accountId=$accountId") {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                        }
+                    }
                 )
             }
-            composable("transactions") {
+            composable(
+                route = "transactions?accountId={accountId}",
+                arguments = listOf(
+                    navArgument("accountId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    }
+                )
+            ) { backStackEntry ->
                 val transactionsViewModel: TransactionsViewModel = viewModel(factory = factory)
+                val accountId = backStackEntry.arguments?.getLong("accountId") ?: -1L
+                androidx.compose.runtime.LaunchedEffect(accountId) {
+                    if (accountId > 0L) transactionsViewModel.focusAccount(accountId)
+                }
                 TransactionsScreen(
                     viewModel = transactionsViewModel,
-                    onEditTransaction = { id -> navController.navigate("edit_transaction/$id") }
+                    onEditTransaction = { id -> navController.navigate("edit_transaction/$id") },
+                    onAddTransaction = { navController.navigate("add_transaction") }
                 )
             }
             composable("analytics") {

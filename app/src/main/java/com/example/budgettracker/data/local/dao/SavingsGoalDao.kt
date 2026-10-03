@@ -14,6 +14,12 @@ interface SavingsGoalDao {
     @Query("SELECT * FROM savings_goals ORDER BY id ASC")
     fun getAllGoals(): Flow<List<SavingsGoal>>
 
+    @Query("SELECT * FROM savings_goals")
+    suspend fun listAll(): List<SavingsGoal>
+
+    @Query("SELECT * FROM savings_goals WHERE id = :id")
+    suspend fun getGoalById(id: Long): SavingsGoal?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGoal(goal: SavingsGoal): Long
 
@@ -22,4 +28,7 @@ interface SavingsGoalDao {
 
     @Delete
     suspend fun deleteGoal(goal: SavingsGoal)
+
+    @Query("DELETE FROM savings_goals")
+    suspend fun deleteAll()
 }
